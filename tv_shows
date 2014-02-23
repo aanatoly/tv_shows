@@ -115,9 +115,9 @@ def parse_subtitles(name, html):
         t = ' '.join(d.text.split())
         # x.debug("%s", t)
         m = ssre.match(t)
-        x.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
         if not m:
             continue
+        x.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
         xname = m.group('name').title()
         xep = m.group('ep').lower()
         xsno = m.group('sno')
@@ -132,7 +132,28 @@ def parse_subtitles(name, html):
     x.debug("%s", pprint.pformat(res))
     return res
 
+def search_kat(name, opts):
+    site = 'http://kickass.to'
+    url = site + '/usearch/' + name.replace(' ', '%20') + \
+           '%20category%3Atv/' + opts
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        '--user-agent=' + uagent,
+        '--referer=' + site, url
+    ]
 
+    x.debug("cmd: %s", cmd)
+    p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
+    p.wait()
+    html = p.stdout.read()
+    try:
+        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        html = d.decompress(html)
+    except:
+        pass
+    return html
+    
 def search_torrents(args, old_ep = 's00e00'):
     '''Searches torrent site 'http://kickass.to' for new episodes of a given TV
        show.  An episode is considered new if it is newer then `old_ep`.
@@ -153,25 +174,9 @@ def search_torrents(args, old_ep = 's00e00'):
 
     assert args.name
 
-    site = 'http://kickass.to'
-    url = site + '/usearch/' + args.name.replace(' ', '%20') + \
-           '%20category%3Atv/?field=time_add&sorder=desc'
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        '--user-agent=' + uagent,
-        '--referer=' + site, url
-    ]
+    html = search_kat(args.name, '') + \
+           search_kat(args.name, '?field=time_add&sorder=desc')
 
-    x.debug("cmd: %s", cmd)
-    p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
-    p.wait()
-    html = p.stdout.read()
-    try:
-        d = zlib.decompressobj(16+zlib.MAX_WBITS)
-        html = d.decompress(html)
-    except:
-        pass
     eps = parse_torrents(args.name, html, old_ep)
     if not eps:
         return []
