@@ -135,7 +135,7 @@ def parse_subtitles(name, html):
 
 def search_torrents(args, old_ep = 's00e00'):
     '''Searches torrent site 'http://kickass.to' for new episodes of a given TV
-       show.  An episode is considered new if it newer then `old_ep`.
+       show.  An episode is considered new if it is newer then `old_ep`.
 
     Args:
       args.name: TV show name, capitalized, with single space between words,
