@@ -1,13 +1,6 @@
 #!/usr/bin/python
 
 ############################################
-# configuration
-############################################
-import os
-torrent_dir = os.environ['HOME'] + '/Downloads/torrents'
-config = os.environ['HOME'] + '/.tv_shows'
-
-############################################
 # Logging
 ############################################
 import logging, sys, os
@@ -34,11 +27,14 @@ desc = '''Looks up new opisodes of tv shows'''
 p = argparse.ArgumentParser(description=desc)
 p.add_argument("--debug", help="debug mode", action="store_true")
 p.add_argument("-n", help="movie name", dest="name", metavar='STR')
-p.add_argument("-s", help="scan movies from db", dest="scan",
+p.add_argument("-a", help="scan all shows in db", dest="all",
                action="store_true")
-p.add_argument("-i", help="info about db", dest="info",
+p.add_argument("-i", help="db info", dest="info",
                action="store_true")
-p.add_argument("file", help="movie file", nargs='?')
+p.add_argument("-s", help="search for subtitles", dest="subtitles",
+               action="store_true")
+p.add_argument("-b", help="open link in a browser", dest="browser",
+               action="store_true")
 
 args = p.parse_args()
 if args.debug:
@@ -54,75 +50,190 @@ from bs4 import BeautifulSoup
 import re
 import zlib
 
-def search_torents(args):
-    if args.name:
-        name = args.name
-    else:
-        raise Exception("No movie name or query")
-    name = ' '.join(name.split()).lower()
-    
-    # FIXME: just for debug
-    if args.file:
-        text = open(args.file, 'r').read()
-        parse_ss(name, text)
-        return
-    
+uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
+         'Gecko/20100101 Firefox/11.0'
+
+
+
+def search_subtitles(args):
+    '''Searches 'http://www.subtitleseeker.com' for subtitles for a given TV
+    show.
+
+    Args:
+      args.name: TV show name, capitalized, with single space between words,
+        eg 'Black Sails'
+      args.browser (bool): if True, opens a browser with search result,
+        for easy download
+
+    Returns:
+      dict: dict of subtiltes number per episode, eg
+        {'s01e03' : 10, 's01e04' : 12}
+
+    '''
+
+    site = 'http://www.subtitleseeker.com'
+    url = site + '/search/TV_EPISODES/' + args.name
     cmd = [
         'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
         '-q', '-O', '-',
-        '--user-agent=Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) Gecko/20100101 Firefox/11.0',
-        '--referer=http://kickass.to/',
-        'http://kickass.to/usearch/' + name.replace(' ', '%20') + '/?field=time_add&sorder=desc'
+        '--user-agent=' + uagent,
+        '--referer=' + site, url
     ]
 
-    # http://kickass.to/usearch/rake/?field=time_add&sorder=desc
-    # http://kickass.to/usearch/black%20sails/
     x.debug("cmd: %s", cmd)
     p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
     p.wait()
-    text = p.stdout.read()
+    html = p.stdout.read()
+    return parse_subtitles(args.name, html)
+
+ssre = None
+
+def parse_subtitles(name, html):
+    '''Parses html from 'http://www.subtitleseeker.com' and extracts subtitles
+    number for each episode
+
+    Args:
+      name (str): TV show name, capitalized, with single space between words,
+        eg 'Black Sails'
+      html (str): html page
+
+
+    Returns:
+      dict: dict of subtiltes number per episode, eg
+        {'s01e03' : 10, 's01e04' : 12}
+    '''
+
+    global ssre
+    if not ssre:
+        r = '(?i)(?P<name>.*)\s+\(\d\d\d\d\)\s+(?P<ep>S\d\dE\d\d)\s+' + \
+            '(?P<sno>\d+)?\s+Sub'
+        ssre = re.compile(r)
+
+    soup = BeautifulSoup(html)
+    res = {}
+    for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
+        t = ' '.join(d.text.split())
+        # x.debug("%s", t)
+        m = ssre.match(t)
+        x.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
+        if not m:
+            continue
+        xname = m.group('name').title()
+        xep = m.group('ep').lower()
+        xsno = m.group('sno')
+
+        if name != xname:
+            continue
+        if xsno == '' or xsno == '0':
+            continue
+
+        res[xep] = xsno
+
+    x.debug("%s", pprint.pformat(res))
+    return res
+
+
+def search_torrents(args, old_ep = 's00e00'):
+    '''Searches torrent site 'http://kickass.to' for new episodes of a given TV
+       show.  An episode is considered new if it newer then `old_ep`.
+
+    Args:
+      args.name: TV show name, capitalized, with single space between words,
+        eg 'Black Sails'
+      args.browser (bool): if True, opens a browser with search result,
+        for easy download
+      args.subtitles (bool): if True, search for subtitles
+      old_ep (str): old episode name, formated as sNNeNN
+
+    Returns:
+      list: list of new episodes, eg ['s01e03, 's01e04']. If `args.subtitles`
+        is True, number of subtitles is appended to an episode,
+        eg ['s01e03+20, 's01e04+2']
+    '''
+
+    assert args.name
+
+    site = 'http://kickass.to'
+    url = site + '/usearch/' + args.name.replace(' ', '%20') + \
+           '%20category%3Atv/?field=time_add&sorder=desc'
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        '--user-agent=' + uagent,
+        '--referer=' + site, url
+    ]
+
+    x.debug("cmd: %s", cmd)
+    p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
+    p.wait()
+    html = p.stdout.read()
     try:
         d = zlib.decompressobj(16+zlib.MAX_WBITS)
-        text = d.decompress(text)
+        html = d.decompress(html)
     except:
         pass
-    return parse_ss(name, text)
+    eps = parse_torrents(args.name, html, old_ep)
+    if not eps:
+        return []
+    if args.browser:
+        sp.Popen([xconf['browser'], url], stderr = open('/dev/null', 'r'))
 
+    if args.subtitles:
+        res = search_subtitles(args)
+        for i in range(len(eps)):
+            if eps[i] in res:
+                eps[i] += ' + ' + res[eps[i]]
+    return eps
 
 tvre = None
 
-def parse_ss(name, text):
+def parse_torrents(name, html, old_ep):
+    '''Parses html from 'http://kickass.to' and extracts new episodes of a
+       given TV show
+
+    Args:
+      name (str): TV show name, capitalized, with single space between words,
+        eg 'Black Sails'
+      html (str): html page
+      old_ep (str): old episode name, formated as sNNeNN
+
+    Returns:
+      list: sorted list of new episodes, eg ['s01e03, 's01e04'].
+    '''
     global tvre
     if not tvre:
-        tvre = '(?i)(?P<name>.*)\s+(?P<se>S\d\dE\d\d)'
+        tvre = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
         tvre = re.compile(tvre)
 
-    name = name.title()
-    ses = []
-    soup = BeautifulSoup(text)
+    eps = []
+    soup = BeautifulSoup(html)
     for d in soup.find_all('div', attrs={'class' : 'torrentname'}):
         t = ' '.join(d.text.split())
         x.debug("%s", t)
         # continue
         m = tvre.match(t)
         if m:
-            if name != m.group('name').strip().title():
+            xname = m.group('name').strip().title()
+            xep = m.group('ep').strip().lower()
+            x.debug('%s vs %s %s', name, xname, xep)
+            if name != xname:
                 continue
-            se = m.group('se').strip().lower()
-            if se in ses:
+            if xep in eps:
                 continue
-            ses.append(se)
-    return sorted(ses)
-                
+            if xep > old_ep:
+                eps.append(xep)
+    return sorted(eps)
+
 
 
 def update_tvs_from_dl(tvs):
     files = []
+    torrent_dir = os.path.expanduser(xconf['torrent_dir'])
     for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
         files.extend(filenames)
         files.extend(dirnames)
     files = [ ' '.join(f.replace('.', ' ').split()) for f in files ]
-        
+
     for tv in tvs:
         rtv = '(?i)' + tv + '.*(S\d\dE\d\d).*'
         for f in files:
@@ -133,40 +244,89 @@ def update_tvs_from_dl(tvs):
             if ep_last > tvs[tv]:
                 x.debug('update %s to %s', tv, ep_last)
                 tvs[tv] = ep_last
-    
+
+
+
+############################################
+# Config
+############################################
+config_file = '~/.tv_shows'
+config_file_real = os.path.expanduser(config_file)
+
+default_xconf = {
+    'browser' : 'firefox-bin',
+    'torrent_dir' : '~/Downloads/torrents',
+    'tvs' : {
+        'Black Sails': 's01e05',
+        'Elementary': 's02e15',
+    }
+}
+
+def config_read():
+    try:
+        text = open(config_file_real, 'r').read()
+    except:
+        config_write_default("does not exists")
+        exit(1)
+
+    try:
+        xconf = eval(text)
+        k1 = sorted(xconf.keys())
+        k2 = sorted(default_xconf.keys())
+        if k1 != k2:
+            raise Exception("wrong format")
+    except:
+        config_write_default("has wrong format")
+        exit(1)
+
+    return xconf
+
+def config_write(xconf):
+    open(config_file_real, 'w').write(pprint.pformat(xconf, width=20) + '\n')
+
+def config_write_default(msg):
+    print "Config file", config_file, msg
+    print "New one was created, please edit it and run script again"
+    config_write(default_xconf)
+
 ############################################
 # Main
 ############################################
 import pprint
 
-try:
-    tvs = eval(open(config, 'r').read())
-except:
-    tvs = {}
-tvsn = dict(tvs)
+if args.name:
+    args.name = args.name.strip().title()
+    eps = search_torrents(args)
+    print "New episodes:", ', '.join(eps)
+    exit(0)
+
+xconf = config_read()
 
 if args.info:
-    print "~/.tv_shows"
-    print pprint.pformat(tvs)
+    print config_file
+    print pprint.pformat(xconf)
     exit(0)
-    
-if not args.scan:
-    print search_torents(args)
-    exit(0)
-    
 
-update_tvs_from_dl(tvsn)
-if tvs != tvsn:
-    tvs = tvsn
-    open(config, 'w').write(pprint.pformat(tvs) + '\n')
-    x.debug(tvs)
 
-for tv in sorted(tvs.keys()):
-    print tv,
-    args = p.parse_args(['-n', tv])
-    ses = search_torents(args)
-    ses = [ se for se in ses if se > tvs[tv] ]
-    print ses
-    # open(config, 'w').write(pprint.pformat(tvs) + '\n')
 
-   
+update_tvs_from_dl(xconf['tvs'])
+config_write(xconf)
+tvs = xconf['tvs']
+
+if args.all:
+    nlen = max([len(k) for k in tvs.keys()])
+    fmt = '%-' + str(nlen) + 's  %-6s  %s'
+    n = 'New'
+    if args.subtitles:
+        n += ' #subs'
+    msg = fmt % ('TV', 'DL', n)
+    print msg
+
+    for tv in sorted(tvs.keys()):
+        args.name = tv
+        eps = search_torrents(args, tvs[tv])
+        eps = ', '.join(eps)
+        print fmt % (tv.title(), tvs[tv], eps)
+
+
+
