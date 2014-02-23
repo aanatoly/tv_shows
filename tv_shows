@@ -1,0 +1,172 @@
+#!/usr/bin/python
+
+############################################
+# configuration
+############################################
+import os
+torrent_dir = os.environ['HOME'] + '/Downloads/torrents'
+config = os.environ['HOME'] + '/.tv_shows'
+
+############################################
+# Logging
+############################################
+import logging, sys, os
+progname = os.path.basename(sys.argv[0])
+def _init_log():
+    name = progname
+    x = logging.getLogger(name)
+    x.setLevel(logging.INFO)
+    # x.setLevel(logging.DEBUG)
+    h = logging.StreamHandler()
+    f = logging.Formatter("%(name)s (%(funcName)s:%(lineno)d) :: %(message)s")
+    # f = logging.Formatter("%(message)s")
+    h.setFormatter(f)
+    x.addHandler(h)
+    return x
+
+x = _init_log()
+
+############################################
+# Argument parsing
+############################################
+import argparse
+desc = '''Looks up new opisodes of tv shows'''
+p = argparse.ArgumentParser(description=desc)
+p.add_argument("--debug", help="debug mode", action="store_true")
+p.add_argument("-n", help="movie name", dest="name", metavar='STR')
+p.add_argument("-s", help="scan movies from db", dest="scan",
+               action="store_true")
+p.add_argument("-i", help="info about db", dest="info",
+               action="store_true")
+p.add_argument("file", help="movie file", nargs='?')
+
+args = p.parse_args()
+if args.debug:
+    x.setLevel(logging.DEBUG)
+
+x.debug("Args: %s", args)
+
+############################################
+# Search
+############################################
+import subprocess as sp
+from bs4 import BeautifulSoup
+import re
+import zlib
+
+def search_torents(args):
+    if args.name:
+        name = args.name
+    else:
+        raise Exception("No movie name or query")
+    name = ' '.join(name.split()).lower()
+    
+    # FIXME: just for debug
+    if args.file:
+        text = open(args.file, 'r').read()
+        parse_ss(name, text)
+        return
+    
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        '--user-agent=Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) Gecko/20100101 Firefox/11.0',
+        '--referer=http://kickass.to/',
+        'http://kickass.to/usearch/' + name.replace(' ', '%20') + '/?field=time_add&sorder=desc'
+    ]
+
+    # http://kickass.to/usearch/rake/?field=time_add&sorder=desc
+    # http://kickass.to/usearch/black%20sails/
+    x.debug("cmd: %s", cmd)
+    p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
+    p.wait()
+    text = p.stdout.read()
+    try:
+        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        text = d.decompress(text)
+    except:
+        pass
+    return parse_ss(name, text)
+
+
+tvre = None
+
+def parse_ss(name, text):
+    global tvre
+    if not tvre:
+        tvre = '(?i)(?P<name>.*)\s+(?P<se>S\d\dE\d\d)'
+        tvre = re.compile(tvre)
+
+    name = name.title()
+    ses = []
+    soup = BeautifulSoup(text)
+    for d in soup.find_all('div', attrs={'class' : 'torrentname'}):
+        t = ' '.join(d.text.split())
+        x.debug("%s", t)
+        # continue
+        m = tvre.match(t)
+        if m:
+            if name != m.group('name').strip().title():
+                continue
+            se = m.group('se').strip().lower()
+            if se in ses:
+                continue
+            ses.append(se)
+    return sorted(ses)
+                
+
+
+def update_tvs_from_dl(tvs):
+    files = []
+    for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
+        files.extend(filenames)
+        files.extend(dirnames)
+    files = [ ' '.join(f.replace('.', ' ').split()) for f in files ]
+        
+    for tv in tvs:
+        rtv = '(?i)' + tv + '.*(S\d\dE\d\d).*'
+        for f in files:
+            m = re.search(rtv, f)
+            if not m:
+                continue
+            ep_last = m.group(1).lower()
+            if ep_last > tvs[tv]:
+                x.debug('update %s to %s', tv, ep_last)
+                tvs[tv] = ep_last
+    
+############################################
+# Main
+############################################
+import pprint
+
+try:
+    tvs = eval(open(config, 'r').read())
+except:
+    tvs = {}
+tvsn = dict(tvs)
+
+if args.info:
+    print "~/.tv_shows"
+    print pprint.pformat(tvs)
+    exit(0)
+    
+if not args.scan:
+    print search_torents(args)
+    exit(0)
+    
+
+update_tvs_from_dl(tvsn)
+if tvs != tvsn:
+    tvs = tvsn
+    open(config, 'w').write(pprint.pformat(tvs) + '\n')
+    x.debug(tvs)
+
+for tv in sorted(tvs.keys()):
+    print tv,
+    args = p.parse_args(['-n', tv])
+    ses = search_torents(args)
+    ses = [ se for se in ses if se > tvs[tv] ]
+    print ses
+    # open(config, 'w').write(pprint.pformat(tvs) + '\n')
+
+   
