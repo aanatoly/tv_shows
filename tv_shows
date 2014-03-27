@@ -121,9 +121,40 @@ def update_tvs_from_dl(tvs):
 ############################################
 # Subtitles
 ############################################
-re_subtitles = None
 
 def update_subtitles(name, tv):
+    global re_subtitles
+
+    log.debug('%s', name)
+    site = 'http://www.subtitleseeker.com'
+    url = site + '/search/TV_TITLES/' + name
+    tv['sub_url'] = url
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        '--user-agent=' + uagent,
+        '--referer=' + site, url
+    ]
+    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+
+    soup = BeautifulSoup(html)
+    for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
+        try:
+            a = d.div.a
+            t = ' '.join(a.text.split()).title()
+        except:
+            continue
+        log.debug("title '%s', href '%s'", t, a['href'])
+        if t != name:
+            continue
+        tv['sub_url'] = a['href']
+        break
+
+
+re_subtitles = None
+
+
+def update_subtitles_old(name, tv):
     global re_subtitles
 
     log.debug('%s', name)
@@ -193,6 +224,9 @@ def update_torrents(name, tv):
             continue
         xname = m.group('name').strip().title()
         xep = m.group('ep').strip().lower()
+        # drop bogus episods, like sXXe99
+        if int(xep[-2:]) > 90:
+            continue
         if name != xname:
             continue
         log.debug('%s %s', xname, xep)
@@ -234,7 +268,7 @@ def update_air_dates(name, tv):
         # '--user-agent=' + uagent,
         '--referer=' + site, url % name
     ]
-    log.debug('wget %s', cmd)
+    # log.debug('wget %s', cmd)
     html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
     soup = BeautifulSoup(html)
     eps = tv['eps']
@@ -284,7 +318,7 @@ def update_tv_show(name, tv):
     update_torrents(name, tv)
     if args.subtitles:
         update_subtitles(name, tv)
-    log.debug('%s', pprint.pformat(tv))
+    # log.debug('%s', pprint.pformat(tv))
     
 def print_tv_show(tv):
     msg_dl = tv['dl_ep']
@@ -309,10 +343,12 @@ def print_tv_show(tv):
         ss.append(s)
     if ss:
         if args.browser:
-            sp.Popen([xconf['browser'], tv['torrent_url']],
-                     stderr = open('/dev/null', 'r'))
-            sp.Popen([xconf['browser'], tv['sub_url']],
-                     stderr = open('/dev/null', 'r'))
+            if tv['torrent_url']:
+                sp.Popen([xconf['browser'], tv['torrent_url']],
+                         stderr = open('/dev/null', 'r'))
+            if tv['sub_url']:
+                sp.Popen([xconf['browser'], tv['sub_url']],
+                         stderr = open('/dev/null', 'r'))
         return (msg_dl, ', '.join(ss))
 
     # find date of the next episode
