@@ -129,6 +129,7 @@ def update_subtitles(name, tv):
     log.debug('%s', name)
     site = 'http://www.subtitleseeker.com'
     url = site + '/search/TV_EPISODES/' + name
+    tv['sub_url'] = url
     cmd = [
         'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
         '-q', '-O', '-',
@@ -176,7 +177,7 @@ def update_torrents(name, tv):
            '%20category%3Atv/'
     opts = '?field=time_add&sorder=desc'
     html = wget_kat(site, url) + wget_kat(site, url + opts)
-    tv['torren_url'] = url
+    tv['torrent_url'] = url
     
     if not re_torrents:
         re_torrents = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
@@ -265,7 +266,7 @@ def update_air_dates(name, tv):
 def new_tv_show():
     tv = dict()
     tv['eps'] = {}
-    tv['torren_url'] = ''
+    tv['torrent_url'] = ''
     tv['sub_url'] = ''
     tv['dl_ep'] = 's00e00'
     return tv
@@ -277,7 +278,7 @@ def new_ep():
     ep['has_sub'] = False
     return ep
 
-def update_tv_show(args, name, tv):
+def update_tv_show(name, tv):
     log.debug('%s', name)
     update_air_dates(name, tv)
     update_torrents(name, tv)
@@ -307,6 +308,11 @@ def print_tv_show(tv):
             s += ' + subs'
         ss.append(s)
     if ss:
+        if args.browser:
+            sp.Popen([xconf['browser'], tv['torrent_url']],
+                     stderr = open('/dev/null', 'r'))
+            sp.Popen([xconf['browser'], tv['sub_url']],
+                     stderr = open('/dev/null', 'r'))
         return (msg_dl, ', '.join(ss))
 
     # find date of the next episode
@@ -362,12 +368,11 @@ tw = textwrap.TextWrapper(width = 78,
                           replace_whitespace = False,
                           subsequent_indent = indent)
 
-
-print afmt % ('TV', 'Old', 'New')
+print "\033[1m" + (afmt % ('TV', 'Old', 'New')) + "\033[0m"
 for name in sorted(tvs):
     print name, " ",
     sys.stdout.flush()
-    update_tv_show(args, name, tvs[name])
+    update_tv_show(name, tvs[name])
     msg = afmt % ( (name,) + print_tv_show(tvs[name]) )
     msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
     print msg
