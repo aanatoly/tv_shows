@@ -123,6 +123,10 @@ def update_tvs_from_dl(tvs):
 ############################################
 
 def update_subtitles(name, tv):
+    update_subtitles_tv(name, tv)
+    update_subtitles_episodes(name, tv)
+    
+def update_subtitles_tv(name, tv):
     global re_subtitles
 
     log.debug('%s', name)
@@ -154,13 +158,12 @@ def update_subtitles(name, tv):
 re_subtitles = None
 
 
-def update_subtitles_old(name, tv):
+def update_subtitles_episodes(name, tv):
     global re_subtitles
 
     log.debug('%s', name)
     site = 'http://www.subtitleseeker.com'
     url = site + '/search/TV_EPISODES/' + name
-    tv['sub_url'] = url
     cmd = [
         'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
         '-q', '-O', '-',
