@@ -7,17 +7,17 @@ import logging, sys, os
 progname = os.path.basename(sys.argv[0])
 def _init_log():
     name = progname
-    x = logging.getLogger(name)
-    x.setLevel(logging.INFO)
-    # x.setLevel(logging.DEBUG)
+    log = logging.getLogger(name)
+    log.setLevel(logging.INFO)
+    # log.setLevel(logging.DEBUG)
     h = logging.StreamHandler()
     f = logging.Formatter("%(name)s (%(funcName)s:%(lineno)d) :: %(message)s")
     # f = logging.Formatter("%(message)s")
     h.setFormatter(f)
-    x.addHandler(h)
-    return x
+    log.addHandler(h)
+    return log
 
-x = _init_log()
+log = _init_log()
 
 ############################################
 # Argument parsing
@@ -32,232 +32,31 @@ p.add_argument("-a", help="scan all shows in db", dest="all",
                action="store_true")
 p.add_argument("-i", help="db info", dest="info",
                action="store_true")
-p.add_argument("-s", help="search for subtitles", dest="subtitles",
+p.add_argument("-s", help="chack available subtitles", dest="subtitles",
                action="store_true")
-p.add_argument("-b", help="open link in a browser", dest="browser",
+p.add_argument("-b", help="open links in a browser", dest="browser",
                action="store_true")
 
 args = p.parse_args()
 if args.debug:
-    x.setLevel(logging.DEBUG)
+    log.setLevel(logging.DEBUG)
 
-x.debug("Args: %s", args)
+log.debug("Args: %s", args)
 
 ############################################
-# Search
+# Imports
 ############################################
 import subprocess as sp
 from bs4 import BeautifulSoup
 import re
 import zlib
-
-uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
-         'Gecko/20100101 Firefox/11.0'
-
-
-
-def search_subtitles(args):
-    '''Searches 'http://www.subtitleseeker.com' for subtitles for a given TV
-    show.
-
-    Args:
-      args.name: TV show name, capitalized, with single space between words,
-        eg 'Black Sails'
-      args.browser (bool): if True, opens a browser with search result,
-        for easy download
-
-    Returns:
-      dict: dict of subtiltes number per episode, eg
-        {'s01e03' : 10, 's01e04' : 12}
-
-    '''
-
-    site = 'http://www.subtitleseeker.com'
-    url = site + '/search/TV_EPISODES/' + args.name
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        '--user-agent=' + uagent,
-        '--referer=' + site, url
-    ]
-
-    x.debug("cmd: %s", cmd)
-    p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
-    p.wait()
-    html = p.stdout.read()
-    return parse_subtitles(args.name, html)
-
-ssre = None
-
-def parse_subtitles(name, html):
-    '''Parses html from 'http://www.subtitleseeker.com' and extracts subtitles
-    number for each episode
-
-    Args:
-      name (str): TV show name, capitalized, with single space between words,
-        eg 'Black Sails'
-      html (str): html page
-
-
-    Returns:
-      dict: dict of subtiltes number per episode, eg
-        {'s01e03' : 10, 's01e04' : 12}
-    '''
-
-    global ssre
-    if not ssre:
-        r = '(?i)(?P<name>.*)\s+\(\d\d\d\d\)\s+(?P<ep>S\d\dE\d\d)\s+' + \
-            '(?P<sno>\d+)?\s+Sub'
-        ssre = re.compile(r)
-
-    soup = BeautifulSoup(html)
-    res = {}
-    for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
-        t = ' '.join(d.text.split())
-        # x.debug("%s", t)
-        m = ssre.match(t)
-        if not m:
-            continue
-        x.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
-        xname = m.group('name').title()
-        xep = m.group('ep').lower()
-        xsno = m.group('sno')
-
-        if name != xname:
-            continue
-        if xsno == '' or xsno == '0':
-            continue
-
-        res[xep] = xsno
-
-    x.debug("%s", pprint.pformat(res))
-    return res
-
-def search_kat(site, url):
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        '--user-agent=' + uagent,
-        '--referer=' + site, url
-    ]
-
-    x.debug("cmd: %s", cmd)
-    p = sp.Popen(cmd, stdout = sp.PIPE, stderr = open('/dev/null', 'w'))
-    p.wait()
-    html = p.stdout.read()
-    try:
-        d = zlib.decompressobj(16+zlib.MAX_WBITS)
-        html = d.decompress(html)
-    except:
-        pass
-    return html
-    
-def search_torrents(args, old_ep = 's00e00'):
-    '''Searches torrent site 'http://kickass.to' for new episodes of a given TV
-       show.  An episode is considered new if it is newer then `old_ep`.
-
-    Args:
-      args.name: TV show name, capitalized, with single space between words,
-        eg 'Black Sails'
-      args.browser (bool): if True, opens a browser with search result,
-        for easy download
-      args.subtitles (bool): if True, search for subtitles
-      old_ep (str): old episode name, formated as sNNeNN
-
-    Returns:
-      list: list of new episodes, eg ['s01e03, 's01e04']. If `args.subtitles`
-        is True, number of subtitles is appended to an episode,
-        eg ['s01e03+20, 's01e04+2']
-    '''
-
-    assert args.name
-
-    site = 'http://kickass.to'
-    url = site + '/usearch/' + args.name.replace(' ', '%20') + \
-           '%20category%3Atv/'
-    opts = '?field=time_add&sorder=desc'
-    html = search_kat(site, url) + \
-           search_kat(site, url + opts)
-
-    eps = parse_torrents(args.name, html, old_ep)
-    if not eps:
-        return []
-    if args.browser:
-        sp.Popen([xconf['browser'], url + opts],
-                 stderr = open('/dev/null', 'r'))
-
-    if args.subtitles:
-        res = search_subtitles(args)
-        for i in range(len(eps)):
-            if eps[i] in res:
-                eps[i] += ' + ' + res[eps[i]]
-    return eps
-
-tvre = None
-
-def parse_torrents(name, html, old_ep):
-    '''Parses html from 'http://kickass.to' and extracts new episodes of a
-       given TV show
-
-    Args:
-      name (str): TV show name, capitalized, with single space between words,
-        eg 'Black Sails'
-      html (str): html page
-      old_ep (str): old episode name, formated as sNNeNN
-
-    Returns:
-      list: sorted list of new episodes, eg ['s01e03, 's01e04'].
-    '''
-    global tvre
-    if not tvre:
-        tvre = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
-        tvre = re.compile(tvre)
-
-    eps = []
-    soup = BeautifulSoup(html)
-    for d in soup.find_all('div', attrs={'class' : 'torrentname'}):
-        t = ' '.join(d.text.split())
-        x.debug("%s", t)
-        # continue
-        m = tvre.match(t)
-        if m:
-            xname = m.group('name').strip().title()
-            xep = m.group('ep').strip().lower()
-            x.debug('%s vs %s %s', name, xname, xep)
-            if name != xname:
-                continue
-            if xep in eps:
-                continue
-            if xep > old_ep:
-                eps.append(xep)
-    return sorted(eps)
-
-
-
-def update_tvs_from_dl(tvs):
-    files = []
-    torrent_dir = os.path.expanduser(xconf['torrent_dir'])
-    for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
-        files.extend(filenames)
-        files.extend(dirnames)
-    files = [ ' '.join(f.replace('.', ' ').split()) for f in files ]
-
-    for tv in tvs:
-        rtv = '(?i)' + tv + '.*(S\d\dE\d\d).*'
-        for f in files:
-            m = re.search(rtv, f)
-            if not m:
-                continue
-            ep_last = m.group(1).lower()
-            if ep_last > tvs[tv]:
-                x.debug('update %s to %s', tv, ep_last)
-                tvs[tv] = ep_last
-
-
+import datetime, pprint, textwrap
 
 ############################################
 # Config
 ############################################
+uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
+         'Gecko/20100101 Firefox/11.0'
 config_file = '~/.tv_shows'
 config_file_real = os.path.expanduser(config_file)
 
@@ -297,47 +96,278 @@ def config_write_default(msg):
     print "New one was created, please edit it and run script again"
     config_write(default_xconf)
 
+
+def update_tvs_from_dl(tvs):
+    files = []
+    torrent_dir = os.path.expanduser(xconf['torrent_dir'])
+    for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
+        files.extend(filenames)
+        files.extend(dirnames)
+    files = [ ' '.join(f.replace('.', ' ').split()) for f in files ]
+
+    for tv in tvs:
+        rtv = '(?i)' + tv + '.*(S\d\dE\d\d).*'
+        for f in files:
+            m = re.search(rtv, f)
+            if not m:
+                continue
+            ep_last = m.group(1).lower()
+            if ep_last > tvs[tv]:
+                log.debug('update %s to %s', tv, ep_last)
+                tvs[tv] = ep_last
+
+
+    
+############################################
+# Subtitles
+############################################
+re_subtitles = None
+
+def update_subtitles(name, tv):
+    global re_subtitles
+
+    log.debug('%s', name)
+    site = 'http://www.subtitleseeker.com'
+    url = site + '/search/TV_EPISODES/' + name
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        '--user-agent=' + uagent,
+        '--referer=' + site, url
+    ]
+    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+
+    if not re_subtitles:
+        r = '(?i)(?P<name>.*)\s+\(\d\d\d\d\)\s+(?P<ep>S\d\dE\d\d)\s+' + \
+            '(?P<sno>\d+)?\s+Sub'
+        re_subtitles = re.compile(r)
+
+    soup = BeautifulSoup(html)
+    eps = tv['eps']
+    for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
+        t = ' '.join(d.text.split())
+        # log.debug("%s", t)
+        m = re_subtitles.match(t)
+        if not m:
+            continue
+        log.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
+        xname = m.group('name').title()
+        xep = m.group('ep').lower()
+        xsno = m.group('sno')
+
+        if name != xname:
+            continue
+        if not xep in eps:
+            eps[xep] = new_ep()
+        eps[xep]['has_sub'] = (xsno != '' and xsno != '0')
+
+    
+############################################
+# Torrents
+############################################
+re_torrents = None
+
+def update_torrents(name, tv):
+    global re_torrents
+
+    log.debug('%s', name)
+    site = 'http://kickass.to'
+    url = site + '/usearch/' + name.replace(' ', '%20') + \
+           '%20category%3Atv/'
+    opts = '?field=time_add&sorder=desc'
+    html = wget_kat(site, url) + wget_kat(site, url + opts)
+    tv['torren_url'] = url
+    
+    if not re_torrents:
+        re_torrents = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
+        re_torrents = re.compile(re_torrents)
+
+    eps = tv['eps']
+    soup = BeautifulSoup(html)
+    for d in soup.find_all('div', attrs={'class' : 'torrentname'}):
+        t = ' '.join(d.text.split())
+        # log.debug("%s", t)
+        m = re_torrents.match(t)
+        if not m:
+            continue
+        xname = m.group('name').strip().title()
+        xep = m.group('ep').strip().lower()
+        if name != xname:
+            continue
+        log.debug('%s %s', xname, xep)
+        if not xep in eps:
+            eps[xep] = new_ep()
+        eps[xep]['has_torrent'] = True
+
+    
+def wget_kat(site, url):
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        '--user-agent=' + uagent,
+        '--referer=' + site, url
+    ]
+    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+    try:
+        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        html = d.decompress(html)
+    except:
+        pass
+    return html
+
+############################################
+# Air dates
+############################################
+re_air_dates = None
+
+def update_air_dates(name, tv):
+    global re_air_dates
+    
+    site = 'http://www.tvrage.com'
+    url = site + '/%s/episode_list/all'
+    name = '_'.join(name.title().split())
+    log.debug('%s', name)
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-q', '-O', '-',
+        # '--user-agent=' + uagent,
+        '--referer=' + site, url % name
+    ]
+    log.debug('wget %s', cmd)
+    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+    soup = BeautifulSoup(html)
+    eps = tv['eps']
+    if not re_air_dates:
+        r = '(?i)\d+\s+(?P<s>\d+)x(?P<e>\d+)\s+(?P<d>\S+)'
+        re_air_dates = re.compile(r)
+        
+    for d in soup.find_all('tr', attrs={'id' : 'brow'}):
+        t = ' '.join(d.text.split())
+        m = re_air_dates.match(t)
+        if not m:
+            continue
+        ep = 's%02de%02d' % (int(m.group('s')), int(m.group('e')))
+        try:
+            d = datetime.datetime.strptime(m.group('d'), '%d/%b/%Y')
+        except:
+            d = None
+        log.debug("%s %s", ep, d)
+        if not ep in eps:
+            eps[ep] = new_ep()
+        eps[ep]['air_date'] = d
+        
+
+
 ############################################
 # Main
 ############################################
-import pprint
 
-if args.browser:
-    xconf = config_read()
+def new_tv_show():
+    tv = dict()
+    tv['eps'] = {}
+    tv['torren_url'] = ''
+    tv['sub_url'] = ''
+    tv['dl_ep'] = 's00e00'
+    return tv
+
+def new_ep():
+    ep = dict()
+    ep['air_date'] = None
+    ep['has_torrent'] = False
+    ep['has_sub'] = False
+    return ep
+
+def update_tv_show(args, name, tv):
+    log.debug('%s', name)
+    update_air_dates(name, tv)
+    update_torrents(name, tv)
+    if args.subtitles:
+        update_subtitles(name, tv)
+    log.debug('%s', pprint.pformat(tv))
     
-if args.name:
-    args.name = args.name.strip().title()
-    eps = search_torrents(args)
-    print "New episodes:", ', '.join(eps)
-    exit(0)
+def print_tv_show(tv):
+    msg_dl = tv['dl_ep']
+    if msg_dl == 's00e00':
+        msg_dl = ''
 
+    # find new episodes
+    eps = tv['eps']
+    ep_ids = [ ep_id for ep_id in sorted(eps) if ep_id > tv['dl_ep']]
+    log.debug('eps %s', ep_ids)
+    if not ep_ids:
+        return (msg_dl, '')
+
+    # find new episodes with torrents
+    ss = []
+    for ep_id in ep_ids:
+        if not eps[ep_id]['has_torrent']:
+            continue
+        s = ep_id
+        if eps[ep_id]['has_sub']:
+            s += ' + subs'
+        ss.append(s)
+    if ss:
+        return (msg_dl, ', '.join(ss))
+
+    # find date of the next episode
+    today = datetime.datetime.today()
+    # msg_next = 'Next ' + ep_ids[0]
+    msg_next = ''
+    d = eps[ep_ids[0]]['air_date']
+    if d:
+        # msg_next += ' at ' + str(d.date())
+        days = (d - today).days
+        if days > 0:
+            msg_next += 'in ' + str(days) + ' days'
+        else:
+            msg_next += 'soon'
+    return (msg_dl, msg_next)
+
+############################################
+# Main
+############################################
 xconf = config_read()
-
 if args.info:
     print config_file
     print pprint.pformat(xconf)
     exit(0)
 
+tvs = {}
+
+nlen = 0
+if args.name:
+    name = args.name
+    name = ' '.join(name.split()).title()
+    nlen = len(name)
+    tv = new_tv_show()
+    tvs[name] = tv
+elif args.all:
+    update_tvs_from_dl(xconf['tvs'])
+    config_write(xconf)
+    for name in sorted(xconf['tvs']):
+        if nlen < len(name):
+            nlen = len(name)
+        # name = ' '.join(name.split()).title()
+        tv = new_tv_show()
+        tv['dl_ep'] = xconf['tvs'][name]
+        tvs[name] = tv
+
+if not tvs:
+    exit(0)
+    
+nlen += 3
+afmt = '%-' + str(nlen) + 's' + '%-9s%s'
+indent = ' ' * (nlen + 9)
+tw = textwrap.TextWrapper(width = 78,
+                          replace_whitespace = False,
+                          subsequent_indent = indent)
 
 
-update_tvs_from_dl(xconf['tvs'])
-config_write(xconf)
-tvs = xconf['tvs']
-
-if args.all:
-    nlen = max([len(k) for k in tvs.keys()])
-    fmt = '%-' + str(nlen) + 's  %-6s  %s'
-    n = 'New'
-    if args.subtitles:
-        n += ' #subs'
-    msg = fmt % ('TV', 'DL', n)
+print afmt % ('TV', 'Old', 'New')
+for name in sorted(tvs):
+    print name, " ",
+    sys.stdout.flush()
+    update_tv_show(args, name, tvs[name])
+    msg = afmt % ( (name,) + print_tv_show(tvs[name]) )
+    msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
     print msg
-
-    for tv in sorted(tvs.keys()):
-        args.name = tv
-        eps = search_torrents(args, tvs[tv])
-        eps = ', '.join(eps)
-        print fmt % (tv.title(), tvs[tv], eps)
-
-
-
