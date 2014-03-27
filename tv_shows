@@ -85,7 +85,13 @@ def config_read():
     except:
         config_write_default("has wrong format")
         exit(1)
-
+        
+    ntvs = {}
+    for tv in xconf['tvs']:
+        ntv = ' '.join(tv.split()).title()
+        ntvs[ntv] = xconf['tvs'][tv]
+    xconf['tvs'] = ntvs
+    
     return xconf
 
 def config_write(xconf):
