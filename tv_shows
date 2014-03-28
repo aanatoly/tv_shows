@@ -147,7 +147,6 @@ def update_subtitles_tv(name, tv):
     log.debug('%s', name)
     site = 'http://www.subtitleseeker.com'
     url = site + '/search/TV_TITLES/' + name
-    tv['sub_url'] = url
     cmd = [
         'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
         '-q', '-O', '-',
@@ -160,7 +159,7 @@ def update_subtitles_tv(name, tv):
     for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
         try:
             a = d.div.a
-            t = string.capwords(a)
+            t = string.capwords(a.text).replace("'", "")
         except:
             continue
         log.debug("title '%s', href '%s'", t, a['href'])
@@ -195,7 +194,7 @@ def update_subtitles_episodes(name, tv):
     soup = BeautifulSoup(html)
     eps = tv['eps']
     for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
-        t = ' '.join(d.text.split())
+        t = string.capwords(d.text).replace("'", "")
         # log.debug("%s", t)
         m = re_subtitles.match(t)
         if not m:
@@ -227,7 +226,7 @@ def update_torrents(name, tv):
            '%20category%3Atv/'
     opts = '?field=time_add&sorder=desc'
     html = wget_kat(site, url) + wget_kat(site, url + opts)
-    tv['torrent_url'] = url
+    tv['torrent_url'] = url + opts
     
     if not re_torrents:
         re_torrents = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
@@ -236,7 +235,7 @@ def update_torrents(name, tv):
     eps = tv['eps']
     soup = BeautifulSoup(html)
     for d in soup.find_all('div', attrs={'class' : 'torrentname'}):
-        t = ' '.join(d.text.split())
+        t = string.capwords(d.text).replace("'", "")
         # log.debug("%s", t)
         m = re_torrents.match(t)
         if not m:
