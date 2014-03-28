@@ -112,7 +112,9 @@ def update_tvs_from_dl(tvs):
     for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
         files.extend(filenames)
         files.extend(dirnames)
-    files = [ ' '.join(f.replace('.', ' ').split()) for f in files ]
+    files = [ f.replace("'", "") for f in files ]
+    files = [ f.replace(".", " ") for f in files ]
+    files = [ ' '.join(f.split()) for f in files ]
 
     for tv in tvs:
         rtv = '(?i)' + tv + '.*(S\d\dE\d\d).*'
