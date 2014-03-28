@@ -50,7 +50,7 @@ import subprocess as sp
 from bs4 import BeautifulSoup
 import re
 import zlib
-import datetime, pprint, textwrap
+import datetime, json, textwrap, string
 
 ############################################
 # Config
@@ -88,14 +88,17 @@ def config_read():
         
     ntvs = {}
     for tv in xconf['tvs']:
-        ntv = ' '.join(tv.split()).title()
+        ntv = string.capwords(tv)
         ntvs[ntv] = xconf['tvs'][tv]
     xconf['tvs'] = ntvs
     
     return xconf
 
+def pprint_dict(d):
+    return json.dumps(d, indent=4, sort_keys=True)
+    
 def config_write(xconf):
-    open(config_file_real, 'w').write(pprint.pformat(xconf, width=20) + '\n')
+    open(config_file_real, 'w').write(pprint_dict(xconf))
 
 def config_write_default(msg, old_config = None):
     print "Config file %s %s." % (config_file, msg)
@@ -117,7 +120,7 @@ def update_tvs_from_dl(tvs):
     files = [ ' '.join(f.split()) for f in files ]
 
     for tv in tvs:
-        rtv = '(?i)' + tv + '.*(S\d\dE\d\d).*'
+        rtv = '(?i)' + tv.replace("'", "") + '.*(S\d\dE\d\d).*'
         for f in files:
             m = re.search(rtv, f)
             if not m:
@@ -134,6 +137,7 @@ def update_tvs_from_dl(tvs):
 ############################################
 
 def update_subtitles(name, tv):
+    name = name.replace("'", "")
     update_subtitles_tv(name, tv)
     update_subtitles_episodes(name, tv)
     
@@ -156,7 +160,7 @@ def update_subtitles_tv(name, tv):
     for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
         try:
             a = d.div.a
-            t = ' '.join(a.text.split()).title()
+            t = string.capwords(a)
         except:
             continue
         log.debug("title '%s', href '%s'", t, a['href'])
@@ -197,7 +201,7 @@ def update_subtitles_episodes(name, tv):
         if not m:
             continue
         log.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
-        xname = m.group('name').title()
+        xname = string.capwords(m.group('name'))
         xep = m.group('ep').lower()
         xsno = m.group('sno')
 
@@ -218,6 +222,7 @@ def update_torrents(name, tv):
 
     log.debug('%s', name)
     site = 'http://kickass.to'
+    name = name.replace("'", "")
     url = site + '/usearch/' + name.replace(' ', '%20') + \
            '%20category%3Atv/'
     opts = '?field=time_add&sorder=desc'
@@ -236,7 +241,7 @@ def update_torrents(name, tv):
         m = re_torrents.match(t)
         if not m:
             continue
-        xname = m.group('name').strip().title()
+        xname = string.capwords(m.group('name')).replace("'", "")
         xep = m.group('ep').strip().lower()
         # drop bogus episods, like sXXe99
         if int(xep[-2:]) > 90:
@@ -274,7 +279,8 @@ def update_air_dates(name, tv):
     
     site = 'http://www.tvrage.com'
     url = site + '/%s/episode_list/all'
-    name = '_'.join(name.title().split())
+    name = name.replace("'", "")
+    name = name.replace(" ", "_")
     log.debug('%s', name)
     cmd = [
         'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
@@ -332,7 +338,6 @@ def update_tv_show(name, tv):
     update_torrents(name, tv)
     if args.subtitles:
         update_subtitles(name, tv)
-    # log.debug('%s', pprint.pformat(tv))
     
 def print_tv_show(tv):
     msg_dl = tv['dl_ep']
@@ -383,9 +388,10 @@ def print_tv_show(tv):
 # Main
 ############################################
 xconf = config_read()
+
 if args.info:
     print config_file
-    print pprint.pformat(xconf)
+    print pprint_dict(xconf)
     exit(0)
 
 tvs = {}
@@ -393,7 +399,7 @@ tvs = {}
 nlen = 0
 if args.name:
     name = args.name
-    name = ' '.join(name.split()).title()
+    name = string.capwords(name)
     nlen = len(name)
     tv = new_tv_show()
     tvs[name] = tv
@@ -403,7 +409,6 @@ elif args.all:
     for name in sorted(xconf['tvs']):
         if nlen < len(name):
             nlen = len(name)
-        # name = ' '.join(name.split()).title()
         tv = new_tv_show()
         tv['dl_ep'] = xconf['tvs'][name]
         tvs[name] = tv
