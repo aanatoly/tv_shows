@@ -83,7 +83,7 @@ def config_read():
         if k1 != k2:
             raise Exception("wrong format")
     except:
-        config_write_default("has wrong format")
+        config_write_default("has wrong format", text)
         exit(1)
         
     ntvs = {}
@@ -97,8 +97,11 @@ def config_read():
 def config_write(xconf):
     open(config_file_real, 'w').write(pprint.pformat(xconf, width=20) + '\n')
 
-def config_write_default(msg):
-    print "Config file", config_file, msg
+def config_write_default(msg, old_config = None):
+    print "Config file %s %s." % (config_file, msg)
+    if old_config:
+        print "It's saved as %s" % (config_file + ".bak",)
+        open(config_file_real + ".bak", 'w').write(old_config)
     print "New one was created, please edit it and run script again"
     config_write(default_xconf)
 
