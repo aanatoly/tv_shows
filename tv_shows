@@ -95,7 +95,7 @@ def config_read():
     return xconf
 
 def pprint_dict(d):
-    return json.dumps(d, indent=4, sort_keys=True)
+    return json.dumps(d, indent=4, sort_keys=True) + '\n'
     
 def config_write(xconf):
     open(config_file_real, 'w').write(pprint_dict(xconf))
@@ -153,8 +153,12 @@ def update_subtitles_tv(name, tv):
         '--user-agent=' + uagent,
         '--referer=' + site, url
     ]
-    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
-
+    try:
+        html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+    except:
+        print >> sys.stderr, '\n', site, 'is unavailable'
+        return
+        
     soup = BeautifulSoup(html)
     for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
         try:
@@ -184,8 +188,12 @@ def update_subtitles_episodes(name, tv):
         '--user-agent=' + uagent,
         '--referer=' + site, url
     ]
-    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
-
+    try:
+        html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+    except:
+        print >> sys.stderr, '\n', site, 'is unavailable'
+        return
+        
     if not re_subtitles:
         r = '(?i)(?P<name>.*)\s+\(\d\d\d\d\)\s+(?P<ep>S\d\dE\d\d)\s+' + \
             '(?P<sno>\d+)?\s+Sub'
@@ -376,7 +384,7 @@ def print_tv_show(tv):
     d = eps[ep_ids[0]]['air_date']
     if d:
         # msg_next += ' at ' + str(d.date())
-        days = (d - today).days
+        days = (d - today).days + 1
         if days > 0:
             msg_next += 'in ' + str(days) + ' days'
         else:
