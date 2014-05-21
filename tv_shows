@@ -36,6 +36,8 @@ p.add_argument("-s", help="chack available subtitles", dest="subtitles",
                action="store_true")
 p.add_argument("-b", help="open links in a browser", dest="browser",
                action="store_true")
+p.add_argument("-t", help="show trends and popular TV shows", dest="trends",
+               action="store_true")
 
 args = p.parse_args()
 if args.debug:
@@ -276,6 +278,38 @@ def wget_kat(site, url):
         pass
     return html
 
+
+############################################
+# Trends
+############################################
+def get_trends():
+    site = 'http://kickass.to'
+    url = site + '/tv/'
+    html = ''
+    for p in ['', '2', '3', '4']:
+        html += wget_kat(site, url + p)
+    
+    soup = BeautifulSoup(html)
+    trends = {}
+    for d in soup.find_all('a', attrs={'class' : 'cellMainLink'}):
+        t = d.text.replace("'", "").replace(".", " ")
+        log.debug('%s', t)
+        t = re.sub('\WS\d\d.*', '', t)
+        t = re.sub('HDTV.*', '', t)
+        t = ' '.join(t.split())
+        log.debug('%s', t)
+        try:
+            trends[t] += 1
+        except:
+            trends[t] = 1
+
+    score = []
+    for t in trends:
+        score.append((trends[t], t))
+    score = sorted(score, key = lambda k: (-k[0], k[1]))
+    for t in score:
+        print t[1], '--', t[0]
+        
 ############################################
 # Air dates
 ############################################
@@ -399,6 +433,10 @@ xconf = config_read()
 if args.info:
     print config_file
     print pprint_dict(xconf)
+    exit(0)
+
+if args.trends:
+    get_trends()
     exit(0)
 
 tvs = {}
