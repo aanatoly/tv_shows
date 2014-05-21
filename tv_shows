@@ -283,32 +283,45 @@ def wget_kat(site, url):
 # Trends
 ############################################
 def get_trends():
+
     site = 'http://kickass.to'
     url = site + '/tv/'
     html = ''
     for p in ['', '2', '3', '4']:
         html += wget_kat(site, url + p)
-    
+
+    # html = open('tv2.htm', 'r').read()
     soup = BeautifulSoup(html)
     trends = {}
     for d in soup.find_all('a', attrs={'class' : 'cellMainLink'}):
         t = d.text.replace("'", "").replace(".", " ")
-        log.debug('%s', t)
-        t = re.sub('\WS\d\d.*', '', t)
         t = re.sub('HDTV.*', '', t)
-        t = ' '.join(t.split())
         log.debug('%s', t)
-        try:
-            trends[t] += 1
-        except:
-            trends[t] = 1
+        m = re.match('(?P<name>.*?)(?P<se>(S\d\d)?E\d\d)', t)
+        if m:
+            se = m.group('se')
+            name = ' '.join(m.group('name').split())
+        else:
+            se = ''
+            name = ''
+        log.debug('%s %s', name, se)
+        if not name in trends:
+            trends[name] = { 'se' : se, 'no' : 1 }
+        else:
+            trends[name]['no'] += 1
+            if trends[name]['se'] < se:
+                trends[name]['se'] = se
 
     score = []
-    for t in trends:
-        score.append((trends[t], t))
+    for name in trends:
+        score.append((trends[name]['no'], name, trends[name]['se']))
     score = sorted(score, key = lambda k: (-k[0], k[1]))
+    mlen = str(max([len(t[1]) for t in score]))
+    fmt = '%-' + mlen + 's  %-6s  %s'
+    log.debug('fmt %s', fmt)
+    print '\033[1m' + fmt % ('Name', 'Ep', 'Refs') + '\033[0m'
     for t in score:
-        print t[1], '--', t[0]
+        print fmt % (t[1], t[2], str(t[0]))
         
 ############################################
 # Air dates
