@@ -282,6 +282,19 @@ def wget_kat(site, url):
 ############################################
 # Trends
 ############################################
+def add_trends(trends, name, se):
+    name = ' '.join(name.split())
+    se = se.upper()
+    log.debug('Name: %s', name)
+    log.debug('EP:   %s', se)
+    key = name.lower()
+    if not key in trends:
+        trends[key] = { 'name' : name, 'se' : se, 'no' : 1 }
+    else:
+        trends[key]['no'] += 1
+        if trends[key]['se'] < se:
+            trends[key]['se'] = se
+            
 def get_trends():
 
     site = 'http://kickass.to'
@@ -294,27 +307,35 @@ def get_trends():
     soup = BeautifulSoup(html)
     trends = {}
     for d in soup.find_all('a', attrs={'class' : 'cellMainLink'}):
-        t = d.text.replace("'", "").replace(".", " ")
-        t = re.sub('HDTV.*', '', t)
-        log.debug('%s', t)
-        m = re.match('(?P<name>.*?)(?P<se>(S\d\d)?E\d\d)', t)
+        t = d.text.replace("'", "")
+        log.debug('Torrent name: "%s"', t)
+        t = t.replace(".", " ")
+        t = re.sub('(?i)HDTV.*', '', t)
+        
+        reg = '(?P<name>.+?)(?P<se>S\d\dE\d\d)'
+        m = re.match(reg, t)
         if m:
-            se = m.group('se')
-            name = ' '.join(m.group('name').split())
-        else:
-            se = ''
-            name = ''
-        log.debug('%s %s', name, se)
-        if not name in trends:
-            trends[name] = { 'se' : se, 'no' : 1 }
-        else:
-            trends[name]['no'] += 1
-            if trends[name]['se'] < se:
-                trends[name]['se'] = se
+            add_trends(trends, m.group('name'), m.group('se'))
+            continue
+
+        reg = '(?P<name>.+?)(?P<s>S\d\d)E\d+-(?P<e>E\d+)'
+        m = re.match(reg, t)
+        if m:
+            add_trends(trends, m.group('name'), m.group('s') + m.group('e'))
+            continue
+
+        reg = '(?P<name>.+?)(E\d+-)?(?P<e>E\d+)'
+        m = re.match(reg, t)
+        if m:
+            add_trends(trends, m.group('name'), m.group('e'))
+            continue
+
 
     score = []
-    for name in trends:
-        score.append((trends[name]['no'], name, trends[name]['se']))
+    for key in trends:
+        score.append((trends[key]['no'],
+                      trends[key]['name'],
+                      trends[key]['se']))
     score = sorted(score, key = lambda k: (-k[0], k[1]))
     mlen = str(max([len(t[1]) for t in score]))
     fmt = '%-' + mlen + 's  %-6s  %s'
