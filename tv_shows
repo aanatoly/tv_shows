@@ -3,8 +3,12 @@
 ############################################
 # Logging
 ############################################
-import logging, sys, os
+import logging
+import sys
+import os
 progname = os.path.basename(sys.argv[0])
+
+
 def _init_log():
     name = progname
     log = logging.getLogger(name)
@@ -52,7 +56,10 @@ import subprocess as sp
 from bs4 import BeautifulSoup
 import re
 import zlib
-import datetime, json, textwrap, string
+import datetime
+import json
+import textwrap
+import string
 
 ############################################
 # Config
@@ -63,13 +70,14 @@ config_file = '~/.tv_shows'
 config_file_real = os.path.expanduser(config_file)
 
 default_xconf = {
-    'browser' : 'firefox-bin',
-    'torrent_dir' : '~/Downloads/torrents',
-    'tvs' : {
+    'browser': 'firefox-bin',
+    'torrent_dir': '~/Downloads/torrents',
+    'tvs': {
         'Black Sails': 's01e05',
         'Elementary': 's02e15',
     }
 }
+
 
 def config_read():
     try:
@@ -87,22 +95,25 @@ def config_read():
     except:
         config_write_default("has wrong format", text)
         exit(1)
-        
+
     ntvs = {}
     for tv in xconf['tvs']:
         ntv = string.capwords(tv)
         ntvs[ntv] = xconf['tvs'][tv]
     xconf['tvs'] = ntvs
-    
+
     return xconf
+
 
 def pprint_dict(d):
     return json.dumps(d, indent=4, sort_keys=True) + '\n'
-    
+
+
 def config_write(xconf):
     open(config_file_real, 'w').write(pprint_dict(xconf))
 
-def config_write_default(msg, old_config = None):
+
+def config_write_default(msg, old_config=None):
     print "Config file %s %s." % (config_file, msg)
     if old_config:
         print "It's saved as %s" % (config_file + ".bak",)
@@ -117,9 +128,9 @@ def update_tvs_from_dl(tvs):
     for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
         files.extend(filenames)
         files.extend(dirnames)
-    files = [ f.replace("'", "") for f in files ]
-    files = [ f.replace(".", " ") for f in files ]
-    files = [ ' '.join(f.split()) for f in files ]
+    files = [f.replace("'", "") for f in files]
+    files = [f.replace(".", " ") for f in files]
+    files = [' '.join(f.split()) for f in files]
 
     for tv in tvs:
         rtv = '(?i)' + tv.replace("'", "") + '.*(S\d\dE\d\d).*'
@@ -133,16 +144,15 @@ def update_tvs_from_dl(tvs):
                 tvs[tv] = ep_last
 
 
-    
 ############################################
 # Subtitles
 ############################################
-
 def update_subtitles(name, tv):
     name = name.replace("'", "")
     update_subtitles_tv(name, tv)
     update_subtitles_episodes(name, tv)
-    
+
+
 def update_subtitles_tv(name, tv):
     global re_subtitles
 
@@ -156,13 +166,13 @@ def update_subtitles_tv(name, tv):
         '--referer=' + site, url
     ]
     try:
-        html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+        html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
     except:
         print >> sys.stderr, '\n', site, 'is unavailable'
         return
-        
+
     soup = BeautifulSoup(html)
-    for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
+    for d in soup.find_all('div', attrs={'class': 'boxRows'}):
         try:
             a = d.div.a
             t = string.capwords(a.text).replace("'", "")
@@ -191,11 +201,11 @@ def update_subtitles_episodes(name, tv):
         '--referer=' + site, url
     ]
     try:
-        html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+        html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
     except:
         print >> sys.stderr, '\n', site, 'is unavailable'
         return
-        
+
     if not re_subtitles:
         r = '(?i)(?P<name>.*)\s+\(\d\d\d\d\)\s+(?P<ep>S\d\dE\d\d)\s+' + \
             '(?P<sno>\d+)?\s+Sub'
@@ -203,7 +213,7 @@ def update_subtitles_episodes(name, tv):
 
     soup = BeautifulSoup(html)
     eps = tv['eps']
-    for d in soup.find_all('div', attrs={'class' : 'boxRows'}):
+    for d in soup.find_all('div', attrs={'class': 'boxRows'}):
         t = string.capwords(d.text).replace("'", "")
         # log.debug("%s", t)
         m = re_subtitles.match(t)
@@ -216,15 +226,16 @@ def update_subtitles_episodes(name, tv):
 
         if name != xname:
             continue
-        if not xep in eps:
+        if xep not in eps:
             eps[xep] = new_ep()
         eps[xep]['has_sub'] = (xsno != '' and xsno != '0')
 
-    
+
 ############################################
 # Torrents
 ############################################
 re_torrents = None
+
 
 def update_torrents(name, tv):
     global re_torrents
@@ -233,18 +244,18 @@ def update_torrents(name, tv):
     site = 'http://kickass.to'
     name = name.replace("'", "")
     url = site + '/usearch/' + name.replace(' ', '%20') + \
-           '%20category%3Atv/'
+        '%20category%3Atv/'
     opts = '?field=time_add&sorder=desc'
     html = wget_kat(site, url) + wget_kat(site, url + opts)
     tv['torrent_url'] = url + opts
-    
+
     if not re_torrents:
         re_torrents = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
         re_torrents = re.compile(re_torrents)
 
     eps = tv['eps']
     soup = BeautifulSoup(html)
-    for d in soup.find_all('div', attrs={'class' : 'torrentname'}):
+    for d in soup.find_all('div', attrs={'class': 'torrentname'}):
         t = string.capwords(d.text).replace("'", "")
         # log.debug("%s", t)
         m = re_torrents.match(t)
@@ -258,11 +269,11 @@ def update_torrents(name, tv):
         if name != xname:
             continue
         log.debug('%s %s', xname, xep)
-        if not xep in eps:
+        if xep not in eps:
             eps[xep] = new_ep()
         eps[xep]['has_torrent'] = True
 
-    
+
 def wget_kat(site, url):
     cmd = [
         'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
@@ -270,7 +281,7 @@ def wget_kat(site, url):
         '--user-agent=' + uagent,
         '--referer=' + site, url
     ]
-    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+    html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
     try:
         d = zlib.decompressobj(16+zlib.MAX_WBITS)
         html = d.decompress(html)
@@ -288,15 +299,15 @@ def add_trends(trends, name, se):
     log.debug('Name: %s', name)
     log.debug('EP:   %s', se)
     key = name.lower()
-    if not key in trends:
-        trends[key] = { 'name' : name, 'se' : se, 'no' : 1 }
+    if key not in trends:
+        trends[key] = {'name': name, 'se': se, 'no': 1}
     else:
         trends[key]['no'] += 1
         if trends[key]['se'] < se:
             trends[key]['se'] = se
-            
-def get_trends():
 
+
+def get_trends():
     site = 'http://kickass.to'
     url = site + '/tv/'
     html = ''
@@ -306,12 +317,12 @@ def get_trends():
     # html = open('tv2.htm', 'r').read()
     soup = BeautifulSoup(html)
     trends = {}
-    for d in soup.find_all('a', attrs={'class' : 'cellMainLink'}):
+    for d in soup.find_all('a', attrs={'class': 'cellMainLink'}):
         t = d.text.replace("'", "")
         log.debug('Torrent name: "%s"', t)
         t = t.replace(".", " ")
         t = re.sub('(?i)HDTV.*', '', t)
-        
+
         reg = '(?P<name>.+?)(?P<se>S\d\dE\d\d)'
         m = re.match(reg, t)
         if m:
@@ -330,28 +341,28 @@ def get_trends():
             add_trends(trends, m.group('name'), m.group('e'))
             continue
 
-
     score = []
     for key in trends:
         score.append((trends[key]['no'],
                       trends[key]['name'],
                       trends[key]['se']))
-    score = sorted(score, key = lambda k: (-k[0], k[1]))
+    score = sorted(score, key=lambda k: (-k[0], k[1]))
     mlen = str(max([len(t[1]) for t in score]))
     fmt = '%-' + mlen + 's  %-6s  %s'
     log.debug('fmt %s', fmt)
     print '\033[1m' + fmt % ('Name', 'Ep', 'Refs') + '\033[0m'
     for t in score:
         print fmt % (t[1], t[2], str(t[0]))
-        
+
 ############################################
 # Air dates
 ############################################
 re_air_dates = None
 
+
 def update_air_dates(name, tv):
     global re_air_dates
-    
+
     site = 'http://www.tvrage.com'
     url = site + '/%s/episode_list/all'
     name = name.replace("'", "")
@@ -364,14 +375,14 @@ def update_air_dates(name, tv):
         '--referer=' + site, url % name
     ]
     # log.debug('wget %s', cmd)
-    html = sp.check_output(cmd, stderr = open('/dev/null', 'w'))
+    html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
     soup = BeautifulSoup(html)
     eps = tv['eps']
     if not re_air_dates:
         r = '(?i)\d+\s+(?P<s>\d+)x(?P<e>\d+)\s+(?P<d>\S+)'
         re_air_dates = re.compile(r)
-        
-    for d in soup.find_all('tr', attrs={'id' : 'brow'}):
+
+    for d in soup.find_all('tr', attrs={'id': 'brow'}):
         t = ' '.join(d.text.split())
         m = re_air_dates.match(t)
         if not m:
@@ -382,16 +393,14 @@ def update_air_dates(name, tv):
         except:
             d = None
         log.debug("%s %s", ep, d)
-        if not ep in eps:
+        if ep not in eps:
             eps[ep] = new_ep()
         eps[ep]['air_date'] = d
-        
 
 
 ############################################
 # Main
 ############################################
-
 def new_tv_show():
     tv = dict()
     tv['eps'] = {}
@@ -400,6 +409,7 @@ def new_tv_show():
     tv['dl_ep'] = 's00e00'
     return tv
 
+
 def new_ep():
     ep = dict()
     ep['air_date'] = None
@@ -407,13 +417,15 @@ def new_ep():
     ep['has_sub'] = False
     return ep
 
+
 def update_tv_show(name, tv):
     log.debug('%s', name)
     update_air_dates(name, tv)
     update_torrents(name, tv)
     if args.subtitles:
         update_subtitles(name, tv)
-    
+
+
 def print_tv_show(tv):
     msg_dl = tv['dl_ep']
     if msg_dl == 's00e00':
@@ -421,7 +433,7 @@ def print_tv_show(tv):
 
     # find new episodes
     eps = tv['eps']
-    ep_ids = [ ep_id for ep_id in sorted(eps) if ep_id > tv['dl_ep']]
+    ep_ids = [ep_id for ep_id in sorted(eps) if ep_id > tv['dl_ep']]
     log.debug('eps %s', ep_ids)
     if not ep_ids:
         return (msg_dl, '')
@@ -439,10 +451,10 @@ def print_tv_show(tv):
         if args.browser:
             if tv['torrent_url']:
                 sp.Popen([xconf['browser'], tv['torrent_url']],
-                         stderr = open('/dev/null', 'r'))
+                         stderr=open('/dev/null', 'r'))
             if tv['sub_url']:
                 sp.Popen([xconf['browser'], tv['sub_url']],
-                         stderr = open('/dev/null', 'r'))
+                         stderr=open('/dev/null', 'r'))
         return (msg_dl, ', '.join(ss))
 
     # find date of the next episode
@@ -494,19 +506,19 @@ elif args.all:
 
 if not tvs:
     exit(0)
-    
+
 nlen += 3
 afmt = '%-' + str(nlen) + 's' + '%-9s%s'
 indent = ' ' * (nlen + 9)
-tw = textwrap.TextWrapper(width = 78,
-                          replace_whitespace = False,
-                          subsequent_indent = indent)
+tw = textwrap.TextWrapper(width=78,
+                          replace_whitespace=False,
+                          subsequent_indent=indent)
 
 print "\033[1m" + (afmt % ('TV', 'Old', 'New')) + "\033[0m"
 for name in sorted(tvs):
     print name, " ",
     sys.stdout.flush()
     update_tv_show(name, tvs[name])
-    msg = afmt % ( (name,) + print_tv_show(tvs[name]) )
+    msg = afmt % ((name,) + print_tv_show(tvs[name]))
     msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
     print msg
