@@ -60,6 +60,8 @@ import datetime
 import json
 import textwrap
 import string
+import signal
+
 
 ############################################
 # Config
@@ -399,7 +401,7 @@ def update_air_dates(name, tv):
 
 
 ############################################
-# Main
+# Misc
 ############################################
 def new_tv_show():
     tv = dict()
@@ -471,9 +473,16 @@ def print_tv_show(tv):
             msg_next += 'soon'
     return (msg_dl, msg_next)
 
+
+def signal_handler(signal, frame):
+    print
+    sys.exit(0)
+
 ############################################
 # Main
 ############################################
+signal.signal(signal.SIGINT, signal_handler)
+
 xconf = config_read()
 
 if args.info:
