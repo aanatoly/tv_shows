@@ -1,16 +1,13 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 
 ############################################
 # Logging
 ############################################
 import logging
-import sys
-import os
-progname = os.path.basename(sys.argv[0])
 
 
 def _init_log():
-    name = progname
+    name = 'tv_show'
     log = logging.getLogger(name)
     log.setLevel(logging.INFO)
     # log.setLevel(logging.DEBUG)
@@ -61,7 +58,10 @@ import json
 import textwrap
 import string
 import signal
-
+import sys
+import os
+import urllib
+import tempfile
 
 ############################################
 # Config
@@ -124,7 +124,7 @@ def config_write_default(msg, old_config=None):
     config_write(default_xconf)
 
 
-def update_tvs_from_dl(tvs):
+def update_tvs_from_dl(xconf, tvs):
     files = []
     torrent_dir = os.path.expanduser(xconf['torrent_dir'])
     for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
@@ -149,6 +149,9 @@ def update_tvs_from_dl(tvs):
 ############################################
 # Subtitles
 ############################################
+sub_site = 'http://www.subtitleseeker.com'
+
+
 def update_subtitles(name, tv):
     name = name.replace("'", "")
     update_subtitles_tv(name, tv)
@@ -159,18 +162,11 @@ def update_subtitles_tv(name, tv):
     global re_subtitles
 
     log.debug('%s', name)
-    site = 'http://www.subtitleseeker.com'
-    url = site + '/search/TV_TITLES/' + name
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        '--user-agent=' + uagent,
-        '--referer=' + site, url
-    ]
+    url = sub_site + '/search/TV_TITLES/' + name
     try:
-        html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
+        html = wget(url, sub_site, uagent)
     except:
-        print >> sys.stderr, '\n', site, 'is unavailable'
+        print >> sys.stderr, '\n', sub_site, 'is unavailable'
         return
 
     soup = BeautifulSoup(html)
@@ -194,18 +190,11 @@ def update_subtitles_episodes(name, tv):
     global re_subtitles
 
     log.debug('%s', name)
-    site = 'http://www.subtitleseeker.com'
-    url = site + '/search/TV_EPISODES/' + name
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        '--user-agent=' + uagent,
-        '--referer=' + site, url
-    ]
+    url = sub_site + '/search/TV_EPISODES/' + name
     try:
-        html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
+        html = wget(url, sub_site, uagent)
     except:
-        print >> sys.stderr, '\n', site, 'is unavailable'
+        print >> sys.stderr, '\n', sub_site, 'is unavailable'
         return
 
     if not re_subtitles:
@@ -237,18 +226,17 @@ def update_subtitles_episodes(name, tv):
 # Torrents
 ############################################
 re_torrents = None
-
+kat_site = 'http://kickass.to'
 
 def update_torrents(name, tv):
     global re_torrents
 
     log.debug('%s', name)
-    site = 'http://kickass.to'
     name = name.replace("'", "")
-    url = site + '/usearch/' + name.replace(' ', '%20') + \
+    url = kat_site + '/usearch/' + name.replace(' ', '%20') + \
         '%20category%3Atv/'
     opts = '?field=time_add&sorder=desc'
-    html = wget_kat(site, url) + wget_kat(site, url + opts)
+    html = wget(url, kat_site) + wget(url + opts, kat_site)
     tv['torrent_url'] = url + opts
 
     if not re_torrents:
@@ -276,22 +264,6 @@ def update_torrents(name, tv):
         eps[xep]['has_torrent'] = True
 
 
-def wget_kat(site, url):
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        '--user-agent=' + uagent,
-        '--referer=' + site, url
-    ]
-    html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
-    try:
-        d = zlib.decompressobj(16+zlib.MAX_WBITS)
-        html = d.decompress(html)
-    except:
-        pass
-    return html
-
-
 ############################################
 # Trends
 ############################################
@@ -310,11 +282,10 @@ def add_trends(trends, name, se):
 
 
 def get_trends():
-    site = 'http://kickass.to'
-    url = site + '/tv/'
+    url = kat_site + '/tv/'
     html = ''
     for p in ['', '2', '3', '4']:
-        html += wget_kat(site, url + p)
+        html += wget(url + p, kat_site)
 
     # html = open('tv2.htm', 'r').read()
     soup = BeautifulSoup(html)
@@ -360,26 +331,42 @@ def get_trends():
 # Air dates
 ############################################
 re_air_dates = None
+air_dates_site = 'http://www.tvrage.com'
 
 
-def update_air_dates(name, tv):
-    global re_air_dates
+def air_dates_search_tv(name):
+    s = urllib.urlencode({'search': name})
+    url = '%s/search.php?%s' % (air_dates_site, s)
+    html = wget(url, air_dates_site)
+    return html
 
-    site = 'http://www.tvrage.com'
-    url = site + '/%s/episode_list/all'
-    name = name.replace("'", "")
-    name = name.replace(" ", "_")
-    log.debug('%s', name)
-    cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
-        '-q', '-O', '-',
-        # '--user-agent=' + uagent,
-        '--referer=' + site, url % name
-    ]
-    # log.debug('wget %s', cmd)
-    html = sp.check_output(cmd, stderr=open('/dev/null', 'w'))
+    
+def air_dates_get_tv_url(name, details, html):
     soup = BeautifulSoup(html)
-    eps = tv['eps']
+    for d in soup.find_all('h2'):
+        lname = d.a.string
+        tmp = lname.split()
+        # log.debug("tmp %s", tmp)
+        if tmp[-1][0] == '(' and tmp[-1][-1] == ')':
+            ldetails = tmp[-1][1:-1]
+            lname = ' '.join(tmp[0:-1])
+        else:
+            ldetails = ''
+        lurl = d.a['href']
+        log.debug('name "%s", details "%s", url "%s"', lname, ldetails, lurl)
+        if name.lower() != lname.lower():
+            continue
+        if details is None:
+            return lurl
+        if details.lower() == ldetails.lower():
+            return lurl
+    return ''
+
+    
+def air_dates_parse_dates(eps, html):
+    global re_air_dates
+    
+    soup = BeautifulSoup(html)
     if not re_air_dates:
         r = '(?i)\d+\s+(?P<s>\d+)x(?P<e>\d+)\s+(?P<d>\S+)'
         re_air_dates = re.compile(r)
@@ -399,10 +386,42 @@ def update_air_dates(name, tv):
             eps[ep] = new_ep()
         eps[ep]['air_date'] = d
 
+        
+def update_air_dates(name, tv):
+    html = air_dates_search_tv(name)
+    url = air_dates_get_tv_url(name, None, html)
+    if not url:
+        return
+    html = wget(url + '/episode_list/all', air_dates_site)
+    air_dates_parse_dates(tv['eps'], html)
+
 
 ############################################
 # Misc
 ############################################
+def wget(url, referer=None, uagent=None):
+    dummy, tmp = tempfile.mkstemp()
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        '-k', '-q', '-O', tmp
+    ]
+    if referer:
+        cmd += ['--referer=' + referer]
+    if uagent:
+        cmd += ['--user-agent=' + uagent]
+    cmd += [url]
+    log.debug('wget %s', cmd)
+    sp.check_output(cmd, stderr=open('/dev/null', 'w'))
+    html = open(tmp, 'r').read()
+    os.remove(tmp)
+    try:
+        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        html = d.decompress(html)
+    except:
+        pass
+    return html
+
+    
 def new_tv_show():
     tv = dict()
     tv['eps'] = {}
@@ -481,53 +500,58 @@ def signal_handler(signal, frame):
 ############################################
 # Main
 ############################################
-signal.signal(signal.SIGINT, signal_handler)
+def main():
+    signal.signal(signal.SIGINT, signal_handler)
 
-xconf = config_read()
+    xconf = config_read()
 
-if args.info:
-    print config_file
-    print pprint_dict(xconf)
-    exit(0)
+    if args.info:
+        print config_file
+        print pprint_dict(xconf)
+        exit(0)
 
-if args.trends:
-    get_trends()
-    exit(0)
+    if args.trends:
+        get_trends()
+        exit(0)
 
-tvs = {}
+    tvs = {}
 
-nlen = 0
-if args.name:
-    name = args.name
-    name = string.capwords(name)
-    nlen = len(name)
-    tv = new_tv_show()
-    tvs[name] = tv
-elif args.all:
-    update_tvs_from_dl(xconf['tvs'])
-    config_write(xconf)
-    for name in sorted(xconf['tvs']):
-        if nlen < len(name):
-            nlen = len(name)
+    nlen = 0
+    if args.name:
+        name = args.name
+        name = string.capwords(name)
+        nlen = len(name)
         tv = new_tv_show()
-        tv['dl_ep'] = xconf['tvs'][name]
         tvs[name] = tv
+    elif args.all:
+        update_tvs_from_dl(xconf, xconf['tvs'])
+        config_write(xconf)
+        for name in sorted(xconf['tvs']):
+            if nlen < len(name):
+                nlen = len(name)
+            tv = new_tv_show()
+            tv['dl_ep'] = xconf['tvs'][name]
+            tvs[name] = tv
 
-if not tvs:
-    exit(0)
+    if not tvs:
+        exit(0)
 
-nlen += 3
-afmt = '%-' + str(nlen) + 's' + '%-9s%s'
-indent = ' ' * (nlen + 9)
-tw = textwrap.TextWrapper(width=78,
-                          replace_whitespace=False,
-                          subsequent_indent=indent)
+    nlen += 3
+    afmt = '%-' + str(nlen) + 's' + '%-9s%s'
+    indent = ' ' * (nlen + 9)
+    tw = textwrap.TextWrapper(width=78,
+                              replace_whitespace=False,
+                              subsequent_indent=indent)
 
-print "\033[1m" + (afmt % ('TV', 'Old', 'New')) + "\033[0m"
-for name in sorted(tvs):
-    print name, " ",
-    sys.stdout.flush()
-    update_tv_show(name, tvs[name])
-    msg = afmt % ((name,) + print_tv_show(tvs[name]))
-    msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
-    print msg
+    print "\033[1m" + (afmt % ('TV', 'Old', 'New')) + "\033[0m"
+    for name in sorted(tvs):
+        print name, " ",
+        sys.stdout.flush()
+        update_tv_show(name, tvs[name])
+        msg = afmt % ((name,) + print_tv_show(tvs[name]))
+        msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
+        print msg
+
+
+if __name__ == '__main__':
+    main()
