@@ -486,7 +486,7 @@ def print_tv_show(xconf, tv):
     d = eps[ep_ids[0]]['air_date']
     if d:
         # msg_next += ' at ' + str(d.date())
-        days = (d - today).days + 1
+        days = (d - today).days # + 1
         if days > 0:
             msg_next += 'in ' + str(days) + ' days'
         else:
