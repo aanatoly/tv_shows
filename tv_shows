@@ -379,6 +379,7 @@ def air_dates_parse_dates(eps, html):
         ep = 's%02de%02d' % (int(m.group('s')), int(m.group('e')))
         try:
             d = datetime.datetime.strptime(m.group('d'), '%d/%b/%Y')
+            d= d.replace(hour = 23, minute = 0)
         except:
             d = None
         log.debug("%s %s", ep, d)
@@ -447,7 +448,7 @@ def update_tv_show(name, tv):
         update_subtitles(name, tv)
 
 
-def print_tv_show(tv):
+def print_tv_show(xconf, tv):
     msg_dl = tv['dl_ep']
     if msg_dl == 's00e00':
         msg_dl = ''
@@ -548,7 +549,7 @@ def main():
         print name, " ",
         sys.stdout.flush()
         update_tv_show(name, tvs[name])
-        msg = afmt % ((name,) + print_tv_show(tvs[name]))
+        msg = afmt % ((name,) + print_tv_show(xconf, tvs[name]))
         msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
         print msg
 
