@@ -373,6 +373,7 @@ def air_dates_parse_dates(eps, html):
 
     for d in soup.find_all('tr', attrs={'id': 'brow'}):
         t = ' '.join(d.text.split())
+        log.debug("%s", t)
         m = re_air_dates.match(t)
         if not m:
             continue
@@ -400,10 +401,22 @@ def update_air_dates(name, tv):
 ############################################
 # Misc
 ############################################
+wget_err = [
+    "ok",
+    "Generic error",
+    "Parse error",
+    "File I/O error",
+    "Network failure",
+    "SSL verification failure",
+    "Username/password authentication failure",
+    "Protocol errors",
+    "Server issued an error response",
+]
+    
 def wget(url, referer=None, uagent=None):
     dummy, tmp = tempfile.mkstemp()
     cmd = [
-        'wget', '--timeout=10', '--tries=2', '--max-redirect=1',
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=3',
         '-k', '-q', '-O', tmp
     ]
     if referer:
@@ -412,7 +425,13 @@ def wget(url, referer=None, uagent=None):
         cmd += ['--user-agent=' + uagent]
     cmd += [url]
     log.debug('wget %s', cmd)
-    sp.check_output(cmd, stderr=open('/dev/null', 'w'))
+    rc = sp.call(cmd, stderr=open('/dev/null', 'w'))
+    if rc:
+        if rc < 0 or rc >= len(wget_err):
+            rc = 1
+        log.error("%s when ran '%s'", wget_err[rc], ' '.join(cmd))
+        exit(rc)
+    
     html = open(tmp, 'r').read()
     os.remove(tmp)
     try:
