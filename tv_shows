@@ -33,7 +33,7 @@ p.add_argument("-a", help="scan all shows in db", dest="all",
                action="store_true")
 p.add_argument("-i", help="db info", dest="info",
                action="store_true")
-p.add_argument("-s", help="chack available subtitles", dest="subtitles",
+p.add_argument("-s", help="check available subtitles", dest="subtitles",
                action="store_true")
 p.add_argument("-b", help="open links in a browser", dest="browser",
                action="store_true")
