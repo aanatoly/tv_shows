@@ -369,8 +369,11 @@ class TheFutonCritic(WebDB):
                 continue
             # log.debug("tv %s", tv)
             if 'name' in tv and 'status' in tv:
+                name = re.sub('\s+\(.+\)$', '', tv['name'])
+                name = name.title()
+                tv['name'] = name
                 log.debug("add tv %s", tv)
-                tvs[tv['name']] = tv
+                tvs[name] = tv
 
 
         return tvs.values()
