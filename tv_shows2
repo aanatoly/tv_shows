@@ -1,0 +1,443 @@
+#!/usr/bin/python2
+
+############################################
+# Logging
+############################################
+import logging
+
+
+def _init_log():
+    name = 'tv_show'
+    log = logging.getLogger(name)
+    log.setLevel(logging.INFO)
+    # log.setLevel(logging.DEBUG)
+    h = logging.StreamHandler()
+    # f = logging.Formatter("%(name)s (%(funcName)s:%(lineno)d) :: %(message)s")
+    f = logging.Formatter("%(message)s")
+    h.setFormatter(f)
+    log.addHandler(h)
+    return log
+
+log = _init_log()
+
+############################################
+# Argument parsing
+############################################
+import argparse
+desc = '''Looks up new opisodes of tv shows'''
+p = argparse.ArgumentParser(description=desc)
+p.add_argument("--debug", help="debug mode", action="store_true")
+p.add_argument("-s",
+               help="search show name, eg 'Black Sails'",
+               dest="search", metavar='NAME')
+p.add_argument("--html",
+               help="html file to parse",
+               dest="html", metavar='FILE')
+p.add_argument("-v",
+               help="verbose output",
+               dest="verbose", action="store_true")
+
+args = p.parse_args()
+if args.debug:
+    log.setLevel(logging.DEBUG)
+
+log.debug("Args: %s", args)
+
+############################################
+# Imports
+############################################
+import subprocess as sp
+from bs4 import BeautifulSoup
+import bs4
+import re
+import zlib
+import datetime
+import json
+import textwrap
+import string
+import signal
+import sys
+import os
+import urllib
+import urllib2
+import tempfile
+import time
+
+############################################
+# Misc
+############################################
+uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
+         'Gecko/20100101 Firefox/11.0'
+
+
+wget_err = [
+    "ok",
+    "Generic error",
+    "Parse error",
+    "File I/O error",
+    "Network failure",
+    "SSL verification failure",
+    "Username/password authentication failure",
+    "Protocol errors",
+    "Server issued an error response",
+]
+
+
+def wget(url, referer=None, uagent=None):
+    dummy, tmp = tempfile.mkstemp()
+    cmd = [
+        'wget', '--timeout=10', '--tries=2', '--max-redirect=3',
+        '-k', '-q', '-O', tmp
+    ]
+    if referer:
+        cmd += ['--referer=' + referer]
+    if uagent:
+        cmd += ['--user-agent=' + uagent]
+    cmd += [url]
+    log.debug('wget %s', cmd)
+    rc = sp.call(cmd, stderr=open('/dev/null', 'w'))
+    if rc:
+        if rc < 0 or rc >= len(wget_err):
+            rc = 1
+        log.error("%s when ran '%s'", wget_err[rc], ' '.join(cmd))
+        exit(rc)
+    
+    html = open(tmp, 'r').read()
+    os.remove(tmp)
+    try:
+        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        html = d.decompress(html)
+    except:
+        pass
+    return html
+
+
+def print_soup(soup, level=0):
+    indent = '  ' * level
+    if type(soup) == bs4.NavigableString:
+        msg = soup.string.split()
+        msg = ' '.join(msg)
+        if msg:
+            wp = textwrap.TextWrapper(
+                width=80,
+                initial_indent=indent,
+                subsequent_indent=indent
+            )
+            print wp.fill(msg)
+    elif type(soup) == bs4.element.Tag and soup.name == 'p':
+        msg = soup.text.split()
+        msg = ' '.join(msg)
+        if msg:
+            print indent + '<p>'
+            indent += '  :: '
+            wp = textwrap.TextWrapper(
+                width=80,
+                initial_indent=indent,
+                subsequent_indent=indent
+            )
+            print wp.fill(msg)
+        
+    elif type(soup) == bs4.element.Tag:
+        name = soup.name
+        
+        attrs = []
+        for a in soup.attrs:
+            if a == 'class':
+                tmp = ','.join(soup.attrs[a])
+                # tmp = 'class=' + tmp
+                attrs.insert(0, tmp)
+            else:
+                attrs.append(a)
+        if attrs:
+            name += ' ' + ' '.join(attrs)
+
+        msg = "<%s>" %  name
+        print ('  ' * level) + msg
+        for child in soup.children:
+            print_soup(child, level + 1)
+    else:
+        log.debug("unsupported type: %s ", type(soup))
+        
+    
+############################################
+# TV Show Web Data Bases
+############################################
+
+class WebDB(object):
+    def __init__(self, name, url):
+        self.site_name = name
+        self.site_url = url
+        self.site_fast = False
+        pass
+
+    def __str__(self_):
+        return "<WebDB %s>" % self.site_name
+
+    def fetch_html_post(self, url, vals):
+        log.debug("Fetch POST %s", url)
+        log.debug("    Vals: %s", vals)
+        data = urllib.urlencode(vals)
+        req = urllib2.Request(url, data)
+        response = urllib2.urlopen(req)
+        html = response.read()
+        return html
+
+    
+    def fetch_html_get(self, url, vals):
+        url = url + urllib.urlencode(vals)
+        log.debug("Fetch GET %s", url)
+        response = urllib2.urlopen(url)
+        html = response.read()
+        return html
+
+    
+    def fetch_html(self, search):
+        log.info("Search %s", self.site_url)
+        pass
+
+    
+    def parse_html(self, html):
+        log.debug("Parse HTML (%d bytes)", len(html))
+        pass
+
+    # def add_method(self, self_name, name, ret, args):
+    #     super(Giface, self).add_method(self_name, name, ret, args)
+    #     pass
+
+
+    
+class IsMyShowCancelled(WebDB):
+    def __init__(self):
+        super(IsMyShowCancelled, self).__init__(
+            'IsMyShowCancelled',
+            'http://www.ismyshowcancelled.com/'
+        )
+        self.site_fast = True
+
+        
+    def fetch_html(self, search):
+        super(IsMyShowCancelled, self).fetch_html(search)
+        url = self.site_url + 'shows/search/page/1/'
+        vals = { 'Search': args.search }
+        return self.fetch_html_post(url, vals)
+
+        # data = urllib.urlencode(vals)
+        # req = urllib2.Request(url, data)
+        # response = urllib2.urlopen(req)
+        # html = response.read()
+        # return html
+
+    
+    def parse_html(self, html):
+        super(IsMyShowCancelled, self).parse_html(html)
+        tvs = []
+        soup = BeautifulSoup(html)
+        for div in soup.find_all('div', attrs={'class': 'list-show-leftcol'}):
+            # print_soup(div)
+            log.debug("text '%s'", div.text)
+            vals = div.find_all('p')
+            # log.debug("vals %s", [v.text for v in vals if v.name == 'p'])
+
+            tv = {}
+
+            key = 'name'
+            pos = 0
+            val = vals[pos].text.split()
+            val = ' '.join(val)
+            tv[key] = val
+            log.debug("%d :: %s :: '%s'", pos, key, val)
+
+            key = 'status'
+            pos = 1
+            val = vals[pos].text.split()[1:]
+            val = ' '.join(val)
+            tv[key] = val
+            log.debug("%d :: %s :: '%s'", pos, key, val)
+
+            tvs.append(tv)
+
+        if tvs:
+            return tvs
+
+        for div in soup.find_all('div', attrs={'class': 'Post-Can'}):
+            # print_soup(div)
+            tv = {}
+
+            key = 'name'
+            t = div.find('div', attrs={'class': 'Post-Can-Name'})
+            log.debug("name %s", t)
+            if t:
+                val = t.text.split()
+                val = ' '.join(val)
+                tv[key] = val
+
+            key = 'status'
+            t = div.find('div', attrs={'class': 'Post-Can-Status'})
+            log.debug("status %s", t)
+            if t:
+                val = t.text.split()
+                val = ' '.join(val)
+                tv[key] = val
+
+            tvs.append(tv)
+
+
+        return tvs
+ 
+  
+class TheFutonCritic(WebDB):
+    def __init__(self):
+        super(TheFutonCritic, self).__init__(
+            'TheFutonCritic',
+            'http://thefutoncritic.com/'
+        )
+
+                 
+    def fetch_html(self, search):
+        super(TheFutonCritic, self).fetch_html(search)
+        url = self.site_url + 'search.aspx?'
+        vals = {'q': search, 'type': 'titles'}
+        mhtml = self.fetch_html_get(url, vals)
+        html = ''
+        soup = BeautifulSoup(mhtml)
+        for a in soup.find_all('a'):
+            href = a['href']
+            log.debug("a href %s", href)
+            if href[0] != '/':
+                continue
+            href = href[1:]
+            fhref = href
+            if href[-1] == '/':
+                href = href[:-1]
+
+            href = href.split('/')
+            # log.debug("a href %s", href)
+            if len(href) < 2:
+                continue
+            if href[0] == 'showatch':
+                surl = self.site_url + fhref
+                log.debug("url %s", surl)
+                html += self.fetch_html_get(surl, {})
+        return html
+
+    
+    def parse_html_one(self, url):
+        pass
+    
+
+    def parse_html(self, html):
+        super(TheFutonCritic, self).parse_html(html)
+        tvs = {}
+        soup = BeautifulSoup(html)
+        for table in soup.find_all('table'):
+            log.debug("==================")
+            tv = {}
+            for no, row in enumerate(table.children):
+                if type(row) == bs4.element.NavigableString:
+                    continue
+                if not row.name == 'tr':
+                    continue
+                # print_soup(row)
+
+                if no == 1:
+                    e = row.td.a
+                    # log.debug("first %s", e)
+                    if e and e['href']:
+                        href = e['href']
+                        # log.debug("href %s", href)
+                        if href.startswith('/showatch/'):
+                            text = e.text.strip().split()
+                            text = ' '.join(text)
+                            if text in tvs:
+                                log.debug("double !!! %s", text)
+                                break
+                            tv['name'] = text
+                        else:
+                            log.debug("href %s", href) 
+             
+                else:
+                    e = row.td
+                    text = e.text.strip().split()
+                    text = ' '.join(text)
+                    ts = 'STATUS:'
+                    tl = len(ts)
+                    if text.startswith(ts):
+                        tv['status'] = text[tl:]
+                # log.debug("text %s", text)
+
+            if not tv:
+                continue
+            # log.debug("tv %s", tv)
+            if 'name' in tv and 'status' in tv:
+                log.debug("add tv %s", tv)
+                tvs[tv['name']] = tv
+
+
+        return tvs.values()
+
+    
+############################################
+# Misc
+############################################
+
+def search_one(db, search):
+    if args.html:
+        if not os.path.exists(args.html):
+            html = db.fetch_html(args.search)
+            open(args.html, 'w').write(html)
+        html = open(args.html, 'r').read()
+    else:
+        html = db.fetch_html(args.search)
+    tvs = db.parse_html(html)
+    return tvs
+
+    
+def search(search):
+    dbts = [IsMyShowCancelled, TheFutonCritic]
+    # dbts = [TheFutonCritic]
+    for dbt in dbts:
+        db = dbt()
+        log.debug("Site %s %s", db.site_fast, db.site_name)
+        if db.site_fast:
+            dmsg = 'Y/n'
+            dval = 'y'
+        else:
+            dmsg = 'y/N'
+            dval = 'n'
+        prompt = "Search %s? [%s] " % (db.site_name, dmsg)
+        a = raw_input(prompt).strip()
+        if a == '':
+            a = dval
+        if a[0].lower() != 'y':
+            # log.info("skip %s", a)
+            continue
+        tvs = search_one(db, search)
+        tvs = sorted(tvs, key = lambda user: user['name'])
+        for tv in tvs:
+            log.info("  %s :: %s", tv['name'], tv['status'])
+        log.info('')            
+
+
+def pprint_dict(d):
+    return json.dumps(d, indent=4, sort_keys=True) + '\n'
+
+
+
+def signal_handler(signal, frame):
+    print
+    sys.exit(0)
+
+############################################
+# Main
+############################################
+def main():
+    signal.signal(signal.SIGINT, signal_handler)
+
+    if args.search:
+        search(args.search)
+        return
+    
+  
+
+if __name__ == '__main__':
+    main()
