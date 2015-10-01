@@ -192,7 +192,7 @@ class WebDB(object):
 
     
     def fetch_html(self, search):
-        log.info("Search %s", self.site_url)
+        log.debug("Search %s", self.site_url)
         pass
 
     
@@ -375,6 +375,62 @@ class TheFutonCritic(WebDB):
 
         return tvs.values()
 
+
+
+
+class Kat(WebDB):
+    def __init__(self):
+        super(Kat, self).__init__(
+            'Kickass Torrents',
+            'https://kat.cr/'
+        )
+        self.site_fast = True
+        self.reg = ''
+        
+        
+    def fetch_html(self, search):
+        super(Kat, self).fetch_html(search)
+        # search = search.replace(' ', '%20')
+        url = self.site_url + 'usearch/' + search + ' category:tv/'
+        url += '?field=time_add&sorder=desc'
+        html = wget(url)
+        # html = self.fetch_html_get(url, {})
+        return html
+
+
+  
+
+    def parse_html(self, html):
+        super(Kat, self).parse_html(html)
+        if not self.reg:
+            reg = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
+            self.reg = re.compile(reg)
+        tvs = {}
+        soup = BeautifulSoup(html)
+        for div in soup.find_all('div', attrs={'class': 'markeredBlock'}):
+            text = div.a.text
+            text = string.capwords(text).replace("'", "")
+            # log.debug("text '%s'", text)
+            m = self.reg.match(text)
+            if not m:
+                continue
+            xname = string.capwords(m.group('name')).replace("'", "")
+            xep = m.group('ep').strip().lower()
+            # drop bogus episods, like sXXe99
+            if int(xep[-2:]) > 90:
+                continue
+            # if name != xname:
+            #     continue
+            log.debug("Name '%s' Ep '%s'", xname, xep)
+            if xname in tvs:
+                tv = tvs[xname]
+                if tv['status'] < xep:
+                    tv['status'] = xep
+            else:
+                tv = { 'name': xname, 'status': xep}
+                tvs[xname] = tv
+            
+        return tvs.values()
     
 ############################################
 # Misc
@@ -393,7 +449,7 @@ def search_one(db, search):
 
     
 def search(search):
-    dbts = [IsMyShowCancelled, TheFutonCritic]
+    dbts = [Kat, IsMyShowCancelled, TheFutonCritic]
     # dbts = [TheFutonCritic]
     for dbt in dbts:
         db = dbt()
