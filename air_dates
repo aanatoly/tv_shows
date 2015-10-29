@@ -35,13 +35,15 @@ p = argparse.ArgumentParser(description=desc)
 p.add_argument("--debug", help="debug mode", action="store_true")
 p.add_argument("-v", help="verbose mode",
                dest='verbose', action="store_true")
-p.add_argument("-n", help="movie name to search", dest="name", metavar='STR')
+p.add_argument("-s", help="movie name to search", dest="name", metavar='STR')
 p.add_argument("-W", help="Do not check movies fomr watchlist",
                dest="watch", action="store_false", default=True)
 p.add_argument("-L", help="Do not check local movies",
                dest="local", action="store_false", default=True)
 p.add_argument("-A", help="Do not check air dates",
                dest="adates", action="store_false", default=True)
+p.add_argument("-n", help="Search first N shows only",
+               metavar='N', dest="limit", type=int, default=30)
 
 args = p.parse_args()
 
@@ -463,15 +465,15 @@ if __name__ == '__main__':
 
     kat_tvs = {}
     for i, stv_name in enumerate(search_set):
+        if i == args.limit:
+            log.warning("Only first %d torrents will be searched", args.limit)
+            break
         log.debug("start search: %d,  '%s'", i, stv_name)
         show_progress("Search KAT", i, len(search_set))
         html = kat_get(stv_name)
         show_progress("Search KAT", i + 1, len(search_set))
         kat_parse(kat_tvs, html, stv_name, strict_search)
-        limit = 30
-        if i == limit:
-            log.warning("Only first %d torrents will be searched", limit+1)
-            break
+    
     log.debug("eps at kat %s", json.dumps(kat_tvs, indent=4))
   
     for stv_name in sorted(kat_tvs.keys()):
