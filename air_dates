@@ -36,7 +36,7 @@ try:
     from logging_conf import log
 except:
     log = logging.getLogger()
-    log.setLevel(logging.INFO)
+    log.setLevel(logging.WARNING)
     # log.setLevel(logging.DEBUG)
     h = logging.StreamHandler()
     # f = MyFormatter()
@@ -101,26 +101,24 @@ p = argparse.ArgumentParser(
     formatter_class=SmartHelpFmt,
     description=__doc__,
     epilog=epilog)
+p.add_argument("--debug", help="debug mode",
+    dest='debug', action="store_true")
 p.add_argument("-v", help="verbose mode",
     dest='verbose', action="store_true")
 p.add_argument("-n", help="Search first N shows only",
     metavar='N', dest="limit", type=int, default=30)
 p.add_argument("--scan-watchlist",
     help="Scan watchlist (default: %(default)s)",
-    action=ToggleAction,
-    default=True)
+    choices=['yes', 'no'], default='yes')
 p.add_argument("--scan-local",
     help="Scan local torrents (default: %(default)s)",
-    action=ToggleAction,
-    default=True)
+    choices=['yes', 'no'], default='yes')
 p.add_argument("--search-kat",
     help="Search KickAss Torrents (default: %(default)s)",
-    action=ToggleAction,
-    default=True)
+    choices=['yes', 'no'], default='yes')
 p.add_argument("--search-air-dates",
     help="Search Air Dates (default: %(default)s)",
-    action=ToggleAction,
-    default=True)
+    choices=['yes', 'no'], default='yes')
 p.add_argument("name",
     help="Show name",
     nargs='?')
@@ -132,6 +130,7 @@ if args.debug:
     log.setLevel(logging.DEBUG)
 
 log.debug("Args: %s", args)
+log.debug("Args: %s", dir(args))
 
 ############################################
 # Misc
@@ -189,6 +188,14 @@ def mkdir_p(path):
         if exc.errno == os.errno.EEXIST and os.path.isdir(path):
             pass
         else: raise
+
+
+def is_name_eq(name1, name2, strict_search):
+    if strict_search:
+        return name1 == name2
+    reg = [ '.*' + e for e in name2.split()]
+    reg = ''.join(reg)
+    return re.search(reg, name1) != None
 
 
 # The dict structure is
@@ -261,6 +268,11 @@ def simplify_tv_show_name(pname):
 # Air Dates from http://www.airdates.tv/
 ############################################
 
+def air_dates_search(tvs):
+    html = air_dates_get(None)
+    air_dates_parse(html, tvs)
+
+    
 def air_dates_get(fname):
     log.info("Get air dates from http://www.airdates.tv/")
     url = 'http://www.airdates.tv/'
@@ -284,11 +296,7 @@ def air_dates_parse(html, tvs):
             ep_no = text[-1]
             # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
             if not stv_name in tvs:
-                tv = {
-                    'name': tv_name,
-                    'eps': {}
-                }
-                tvs[stv_name] = tv
+                continue
             tv = tvs[stv_name]
             if not 'eps' in tv:
                 tv['eps'] = {}
@@ -322,7 +330,7 @@ def local_dl_parse(files, tvs):
         m = creg.match(f)
         if not m:
             continue
-        log.debug("file '%s'", f)
+        # log.debug("file '%s'", f)
         pname = m.group(1)
         pname = simplify_tv_show_name(pname)
         pep = m.group(2).upper()
@@ -339,35 +347,39 @@ def local_dl_parse(files, tvs):
         if tv['last_seen_ep'] < pep:
             act = 'upd'
             tv['last_seen_ep'] = pep
-        log.debug("%s\n", act)
+        # log.debug("%s\n", act)
 
 
 ############################################
 # KickAss Torrent search
 ############################################
 
-def kat_get(tv_name):
-    log.info("Search KAT for '%s'", tv_name)
+def kat_search(tvs):
+    html = kat_get(tvs)
+    kat_parse(html, tvs)
+
+    
+def kat_get(tvs):
     kat_site = 'http://kickass.to'
     html = ''
-    url = kat_site + '/usearch/' + tv_name + 'category:tv/'
-    opts = '?field=time_add&sorder=desc'
-    html = wget(url, kat_site) + wget(url + opts, kat_site)
+    for tv_name in sorted(tvs.keys()):
+        log.info("Search KAT for '%s'", tv_name)
+        url = kat_site + '/usearch/' + tv_name + 'category:tv/'
+        opts = '?field=time_add&sorder=desc'
+        html += wget(url, kat_site) + wget(url + opts, kat_site)
     return html
 
 
-def kat_parse(tvs, html, stv_name, strict_search=False):
-    def is_eq(name1, name2, strict_search):
-        if strict_search:
-            return name1 == name2
-        reg = [ '.*' + e for e in name2.split()]
-        reg = ''.join(reg)
-        return re.search(reg, name1) != None
-
+def kat_parse(html, tvs):
+    if args.name:
+        tv = tvs[tvs.keys()[0]]
+        stv_name = tv['simple_name']
+    else:
+        stv_name = None
+    log.debug("KAT: stv_name %s", stv_name)
+        
     reg = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
     creg = re.compile(reg)
-
-    log.debug("KAT: looking for '%s'", stv_name)
     soup = bs4.BeautifulSoup(html)
     for d in soup.find_all('div', attrs={'class': 'markeredBlock'}):
         t = ' '.join(d.text.split())
@@ -377,10 +389,12 @@ def kat_parse(tvs, html, stv_name, strict_search=False):
             continue
         pname = simplify_tv_show_name(m.group('name'))
         pep = m.group('ep').strip().upper()
-
         log.debug("KAT: found '%s' %s", pname, pep)
-        eq = is_eq(pname, stv_name, strict_search)
-        log.debug("KAT: name match %s: '%s' vs '%s'", eq, pname, stv_name)
+        if args.name:
+            eq = is_name_eq(pname, stv_name, False)
+        else:
+            eq = pname in tvs
+        log.debug("KAT: eq name %s", eq)
         if not eq:
             continue
         # drop bogus episods, like sXXe99
@@ -392,11 +406,14 @@ def kat_parse(tvs, html, stv_name, strict_search=False):
                 'avail_eps': [],
             }
             tvs[pname] = tv
+            log.debug("KAT: new tv")
         tv = tvs[pname]
+        if not 'avail_eps' in tv:
+            tv['avail_eps'] = []
         eps = tv['avail_eps']
         if not pep in eps:
             eps.append(pep)
-            log.debug("KAT: add")
+            log.debug("KAT: new ep")
 
     return tvs
 
@@ -482,15 +499,15 @@ def show_progress(msg, i, sz):
         print
     sys.stdout.flush()
 
-    
-if __name__ == '__main__':
+
+def scan(args):
     conf_dir_name = '~/.config/tv_shows'
     conf_dir = os.path.expanduser(conf_dir_name)
     mkdir_p(conf_dir)
 
     tvs = {}
 
-    # scan local files
+    # scan watchlist
     wdir_name = conf_dir_name + '/watchlist'
     wdir = os.path.expanduser(wdir_name)     
     mkdir_p(wdir)
@@ -498,6 +515,8 @@ if __name__ == '__main__':
         log.info("Scan watchlist at %s", wdir_name)
         files = local_dl_get(wdir)
         local_dl_parse(files, tvs)
+
+    # scan local files
     ldir_name = '~/Downloads/torrents'
     ldir = os.path.expanduser(ldir_name)
     mkdir_p(ldir)
@@ -505,45 +524,57 @@ if __name__ == '__main__':
         log.info("Scan local movies at %s", ldir_name)
         files = local_dl_get(ldir)
         local_dl_parse(files, tvs)
-    search_set = [k for k in tvs.keys() if 'last_seen_ep' in tvs[k]]
-    search_set.sort()
-    for stv_name in search_set:
-        name = stv_name + ' ' + tvs[stv_name]['last_seen_ep']
-        name = os.path.join(wdir, name)
-        open(name, 'w').write('\n')
-        log.debug("touch '%s'", name)
 
-    # get air dates
-    if args.search_air_dates:
-        html = air_dates_get(None)
-        air_dates_parse(html, tvs)
+    # filter out shows without episods
+    # and update watchlist
+    for name in tvs:
+        if not 'last_seen_ep' in tvs[name]:
+            log.warning("Show without episods '%s'", name) 
+            del tvs[name]
+        else:
+            name = name + ' ' + tvs[name]['last_seen_ep']
+            name = os.path.join(wdir, name)
+            open(name, 'w').write('\n')
+            log.debug("touch '%s'", name)
 
-    # could be populated from command line, config file
-    # or set of local files
-    strict_search = True
+    return tvs
+
+
+def tvs_from_name(name):
+    name = simplify_tv_show_name(name)
+    tv = {
+        'simple_name': name,
+    }
+    tvs = {
+        name: tv
+    }
+    return tvs
+
+
+if __name__ == '__main__':
     if args.name:
-        sname = simplify_tv_show_name(args.name)
-        search_set = [ sname ]
-        strict_search = False
+        tvs = tvs_from_name(args.name)
+    else:
+        tvs = scan(args)
+    log.debug("scan tvs: %d shows", len(tvs))
 
+    # apply torrent number limit
+    keys = sorted(tvs.keys())
+    del keys [0:args.limit]
+    for key in keys:
+        log.debug("del tv '%s'", key)
+        del tvs[key]
+    if keys:
+        log.debug("left tvs: %d shows", len(tvs))
 
-    kat_tvs = {}
-    for i, stv_name in enumerate(search_set):
-        if i == args.limit:
-            log.warning("Only first %d torrents will be searched", args.limit)
-            break
-        log.debug("start search: %d,  '%s'", i, stv_name)
-        show_progress("Search KAT", i, len(search_set))
-        html = kat_get(stv_name)
-        show_progress("Search KAT", i + 1, len(search_set))
-        kat_parse(kat_tvs, html, stv_name, strict_search)
-    
-    log.debug("eps at kat %s", json.dumps(kat_tvs, indent=4))
-  
-    for stv_name in sorted(kat_tvs.keys()):
+    if args.search_kat:
+        kat_search(tvs)
+
+    if args.search_air_dates:
+        air_dates_search(tvs)
+ 
+    for stv_name in sorted(tvs.keys()):
         log.debug("Simple name: '%s'", stv_name)
-        tv = kat_tvs[stv_name].copy()
-        if stv_name in tvs:
-            tv.update(tvs[stv_name])
+        tv = tvs[stv_name]
         print_tv(tv)
 
