@@ -19,6 +19,7 @@ import bs4
 import re
 import zlib
 import urllib2
+import urllib
 import pprint
 import time
 import json
@@ -119,6 +120,9 @@ p.add_argument("--search-kat",
 p.add_argument("--search-air-dates",
     help="Search Air Dates (default: %(default)s)",
     choices=['yes', 'no'], default='yes')
+p.add_argument("--search-status",
+    help="Search IsMyShowCancelled (default: %(default)s)",
+    choices=['yes', 'no'], default='no')
 p.add_argument("name",
     help="Show name",
     nargs='?')
@@ -181,6 +185,16 @@ def wget(url, referer=None, uagent=None):
     return html
 
 
+def wpost(url, vals):
+    log.debug("Fetch POST %s", url)
+    log.debug("    Vals: %s", vals)
+    data = urllib.urlencode(vals)
+    req = urllib2.Request(url, data)
+    response = urllib2.urlopen(req)
+    html = response.read()
+    return html
+
+    
 def mkdir_p(path):
     path = os.path.expanduser(path)
     try:
@@ -387,7 +401,7 @@ class KAT_TvDB(TvDB):
             stv_name = tv['simple_name']
         else:
             stv_name = None
-            log.debug("KAT: stv_name %s", stv_name)
+        log.debug("KAT: stv_name %s", stv_name)
 
         reg = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
         creg = re.compile(reg)
@@ -468,6 +482,95 @@ class Air_Dates_TvDB(TvDB):
         log.debug("air dates: %s shows", len(tvs))
 
 
+class Status_TvDB(TvDB):
+    def __init__(self):
+        super(Status_TvDB, self).__init__("Status",
+            'http://www.ismyshowcancelled.com/')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        html = ''
+        for tv_name in sorted(tvs.keys()):
+            log.info("Search IsMyShowCancelled for '%s'", tv_name)
+            url = self.url + 'shows/search/page/1/'
+            vals = { 'Search': tv_name }
+            html += wpost(url, vals)
+        return html
+
+     
+    def parse(self, tvs, html):
+        if args.name:
+            tv = tvs[tvs.keys()[0]]
+            stv_name = tv['simple_name']
+        else:
+            stv_name = None
+        log.debug("status: stv_name %s", stv_name)
+
+        soup = bs4.BeautifulSoup(html)
+        # mulltiple result search
+        for div in soup.find_all('div', attrs={'class': 'list-show-leftcol'}):
+            vals = div.find_all('p')
+         
+            # name
+            pname = vals[0].text.split()
+            pname = ' '.join(pname)
+            pname = simplify_tv_show_name(pname)
+            if args.name:
+                eq = is_name_eq(pname, stv_name, False)
+            else:
+                eq = pname in tvs
+            if not eq:
+                continue
+            if not pname in tvs:
+                tv = {
+                    'simple_name': pname,
+                }
+                tvs[pname] = tv
+            tv = tvs[pname]
+
+            # status
+            val = vals[1].text.split()[1:]
+            val = ' '.join(val)
+            tv['status'] = val
+            log.debug("status: '%s' %s", tv['simple_name'], tv['status'])
+
+        for div in soup.find_all('div', attrs={'class': 'Post-Can'}):
+            # name
+            t = div.find('div', attrs={'class': 'Post-Can-Name'})
+            log.debug("name %s", t)
+            if not t:
+                continue
+         
+            # name
+            pname = t.text.split()
+            pname = ' '.join(pname)
+            pname = simplify_tv_show_name(pname)
+            if args.name:
+                eq = is_name_eq(pname, stv_name, False)
+            else:
+                eq = pname in tvs
+            if not eq:
+                continue
+            if not pname in tvs:
+                tv = {
+                    'simple_name': pname,
+                }
+                tvs[pname] = tv
+            tv = tvs[pname]
+
+            # status
+            t = div.find('div', attrs={'class': 'Post-Can-Status'})
+            log.debug("status %s", t)
+            if not t:
+                continue
+            val = t.text.split()
+            val = ' '.join(val)
+            tv['status'] = val
+
+
+
+
 
 ############################################
 # Pretty Print
@@ -504,6 +607,12 @@ class PrintTVs(object):
                 'name': 'avail_eps',
                 'max-len': 24,          # for 3 eps
                 'convert': self.avail_eps_convert,
+            },
+            {
+                'header': 'Status',
+                'name': 'status',
+                'max-len': 24, 
+                'convert': self.status_convert,
             },
         ]
 
@@ -563,7 +672,15 @@ class PrintTVs(object):
         d.sort()
         return ', '.join(d)
     
-        
+
+    def status_convert(self, tv):
+        try:
+            d = tv['status']
+        except:
+            return " "
+        return d
+
+    
     def print_tvs(self):
         self.print_analyze()
         self.print_tv_header()
@@ -678,6 +795,9 @@ if __name__ == '__main__':
 
     if args.search_air_dates == 'yes':
         Air_Dates_TvDB().search(tvs)
+
+    if args.search_status == 'yes':
+        Status_TvDB().search(tvs)
 
     prn = PrintTVs(tvs)
     prn.print_tvs()
