@@ -1,62 +1,19 @@
 #!/usr/bin/python
 
-############################################
-# configuration
-############################################
-import os
-torrent_dir = os.environ['HOME'] + '/Downloads/torrents'
-config = os.environ['HOME'] + '/.tv_shows'
+'''Print tv show info, eg next episod air date, available torrents etc.
+
+%(prog)s uses following web sites:
+Kickass Torrent - for available torrents
+Air Dates - for episod air date
+'''
 
 ############################################
-# Logging
+# Imports
 ############################################
-import logging, sys, os
-progname = os.path.basename(sys.argv[0])
-def _init_log():
-    name = progname
-    x = logging.getLogger(name)
-    x.setLevel(logging.WARNING)
-    # x.setLevel(logging.DEBUG)
-    h = logging.StreamHandler()
-    # f = logging.Formatter("%(name)s (%(funcName)s:%(lineno)d) :: %(message)s")
-    f = logging.Formatter("%(message)s")
-    h.setFormatter(f)
-    x.addHandler(h)
-    return x
-
-log = _init_log()
-
-############################################
-# Argument parsing
-############################################
+import logging
 import argparse
-desc = '''Get TV shows' air dates from http://www.airdates.tv/'''
-p = argparse.ArgumentParser(description=desc)
-p.add_argument("--debug", help="debug mode", action="store_true")
-p.add_argument("-v", help="verbose mode",
-               dest='verbose', action="store_true")
-p.add_argument("-s", help="movie name to search", dest="name", metavar='STR')
-p.add_argument("-W", help="Do not check movies from watchlist",
-               dest="watch", action="store_false", default=True)
-p.add_argument("-L", help="Do not check local movies",
-               dest="local", action="store_false", default=True)
-p.add_argument("-A", help="Do not check air dates",
-               dest="adates", action="store_false", default=True)
-p.add_argument("-n", help="Search first N shows only",
-               metavar='N', dest="limit", type=int, default=30)
-
-args = p.parse_args()
-
-if args.verbose:
-    log.setLevel(logging.INFO)
-if args.debug:
-    log.setLevel(logging.DEBUG)
-
-log.debug("Args: %s", args)
-
-############################################
-# Search
-############################################
+import os
+import sys
 import subprocess as sp
 import bs4
 import re
@@ -68,6 +25,113 @@ import json
 import tempfile
 import textwrap
 import datetime
+
+
+############################################
+# Logging
+############################################
+try:
+    # Module logging_conf should intialize root logger and, perhaps some
+    # others, and assign 'log' variable to proper logger.
+    from logging_conf import log
+except:
+    log = logging.getLogger()
+    log.setLevel(logging.INFO)
+    # log.setLevel(logging.DEBUG)
+    h = logging.StreamHandler()
+    # f = MyFormatter()
+    f = logging.Formatter()
+    h.setFormatter(f)
+    log.addHandler(h)
+
+    
+############################################
+# Argument parsing
+############################################
+class ToggleAction(argparse.Action):
+    def __init__(self, **kw):
+        name = kw['option_strings'][0][2:]
+        if name.startswith('no-'):
+            name = name[3:]
+        kw['dest'] = name
+        kw['option_strings'] = ['--' + name, '--no-' + name]
+        kw['nargs'] = 0
+        kw['metavar'] = None
+        if 'default' not in kw:
+            kw['default'] = False
+        super(ToggleAction, self).__init__(**kw)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest,
+                not option_string.startswith('--no-'))
+
+
+class SmartHelpFmt(argparse.RawDescriptionHelpFormatter):
+    def _format_action(self, action):
+        if type(action) == ToggleAction:
+            opts = action.option_strings
+            action.option_strings = ['--[no-]' + action.dest]
+            parts = super(SmartHelpFmt, self)._format_action(action)
+            action.option_strings = opts
+        else:
+            parts = super(SmartHelpFmt, self)._format_action(action)
+        return parts
+
+    def _format_usage(self, usage, actions, groups, prefix):
+        for g in groups:
+            print(g)
+        text = super(SmartHelpFmt, self)._format_usage(usage,
+            actions, groups, prefix)
+        # print "Usage", text
+        return text
+
+    def format_help(self):
+        text = super(SmartHelpFmt, self).format_help()
+        return text
+
+
+epilog = '''
+Example:
+   %(prog)s bla bla
+'''
+
+
+p = argparse.ArgumentParser(
+    prog='air_dates',
+    formatter_class=SmartHelpFmt,
+    description=__doc__,
+    epilog=epilog)
+p.add_argument("-v", help="verbose mode",
+    dest='verbose', action="store_true")
+p.add_argument("-n", help="Search first N shows only",
+    metavar='N', dest="limit", type=int, default=30)
+p.add_argument("--scan-watchlist",
+    help="Scan watchlist (default: %(default)s)",
+    action=ToggleAction,
+    default=True)
+p.add_argument("--scan-local",
+    help="Scan local torrents (default: %(default)s)",
+    action=ToggleAction,
+    default=True)
+p.add_argument("--search-kat",
+    help="Search KickAss Torrents (default: %(default)s)",
+    action=ToggleAction,
+    default=True)
+p.add_argument("--search-air-dates",
+    help="Search Air Dates (default: %(default)s)",
+    action=ToggleAction,
+    default=True)
+p.add_argument("name",
+    help="Show name",
+    nargs='?')
+args = p.parse_args()
+
+if args.verbose:
+    log.setLevel(logging.INFO)
+if args.debug:
+    log.setLevel(logging.DEBUG)
+
+log.debug("Args: %s", args)
 
 ############################################
 # Misc
@@ -430,14 +494,14 @@ if __name__ == '__main__':
     wdir_name = conf_dir_name + '/watchlist'
     wdir = os.path.expanduser(wdir_name)     
     mkdir_p(wdir)
-    if args.watch:
+    if args.scan_watchlist:
         log.info("Scan watchlist at %s", wdir_name)
         files = local_dl_get(wdir)
         local_dl_parse(files, tvs)
     ldir_name = '~/Downloads/torrents'
     ldir = os.path.expanduser(ldir_name)
     mkdir_p(ldir)
-    if args.local:
+    if args.scan_local:
         log.info("Scan local movies at %s", ldir_name)
         files = local_dl_get(ldir)
         local_dl_parse(files, tvs)
@@ -450,7 +514,7 @@ if __name__ == '__main__':
         log.debug("touch '%s'", name)
 
     # get air dates
-    if args.adates:
+    if args.search_air_dates:
         html = air_dates_get(None)
         air_dates_parse(html, tvs)
 
