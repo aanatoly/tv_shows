@@ -44,7 +44,7 @@ except:
     h.setFormatter(f)
     log.addHandler(h)
 
-    
+
 ############################################
 # Argument parsing
 ############################################
@@ -182,12 +182,14 @@ def wget(url, referer=None, uagent=None):
 
 
 def mkdir_p(path):
+    path = os.path.expanduser(path)
     try:
         os.makedirs(path)
     except OSError as exc: # Python >2.5
         if exc.errno == os.errno.EEXIST and os.path.isdir(path):
             pass
         else: raise
+    return path
 
 
 def is_name_eq(name1, name2, strict_search):
@@ -263,283 +265,6 @@ def simplify_tv_show_name(pname):
     return unicode(pname)
 
 
-
-############################################
-# Air Dates from http://www.airdates.tv/
-############################################
-
-def air_dates_search(tvs):
-    html = air_dates_get(None)
-    air_dates_parse(html, tvs)
-
-    
-def air_dates_get(fname):
-    log.info("Get air dates from http://www.airdates.tv/")
-    url = 'http://www.airdates.tv/'
-    if fname:
-        html = open(fname, "r").read()
-    else:
-        html = wget(url)
-
-    return html
-
-
-def air_dates_parse(html, tvs):
-    soup = bs4.BeautifulSoup(html)
-    for d in soup.find_all('div', class_='day'):
-        date = d['data-date']
-        # log.debug("day %s, %s", date, d['class'])
-        for e in d.find_all('div', class_='title'):
-            text = e.text.split()
-            tv_name = ' '.join(text[:-1])
-            stv_name = simplify_tv_show_name(tv_name)
-            ep_no = text[-1]
-            # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
-            if not stv_name in tvs:
-                continue
-            tv = tvs[stv_name]
-            if not 'eps' in tv:
-                tv['eps'] = {}
-            eps = tv['eps']
-            if not ep_no in eps:
-                ep = {
-                    'no': ep_no,
-                    'date': date
-                }
-                eps[ep_no] = ep
-
-    log.debug("air dates: %s shows", len(tvs))
-
-
-############################################
-# Localy downloaded files
-############################################
-
-def local_dl_get(fdir):
-    log.debug("Search local torrents dir %s", fdir)
-    files = []
-    for (dirpath, dirnames, filenames) in os.walk(fdir):
-        files.extend(filenames)
-    return files
-
-
-def local_dl_parse(files, tvs):
-    reg = '(?i)(.*)(S\d\dE\d\d).*'
-    creg = re.compile(reg)
-    for f in files:
-        m = creg.match(f)
-        if not m:
-            continue
-        # log.debug("file '%s'", f)
-        pname = m.group(1)
-        pname = simplify_tv_show_name(pname)
-        pep = m.group(2).upper()
-        log.debug("name '%s' ep %s", pname, pep)
-        act = 'ign'
-        if not pname in tvs:
-            act = 'add'
-            tv = {
-                'simple_name': pname,
-                'last_seen_ep': pep
-            }
-            tvs[pname] = tv
-        tv = tvs[pname]
-        if tv['last_seen_ep'] < pep:
-            act = 'upd'
-            tv['last_seen_ep'] = pep
-        # log.debug("%s\n", act)
-
-
-############################################
-# KickAss Torrent search
-############################################
-
-def kat_search(tvs):
-    html = kat_get(tvs)
-    kat_parse(html, tvs)
-
-    
-def kat_get(tvs):
-    kat_site = 'http://kickass.to'
-    html = ''
-    for tv_name in sorted(tvs.keys()):
-        log.info("Search KAT for '%s'", tv_name)
-        url = kat_site + '/usearch/' + tv_name + 'category:tv/'
-        opts = '?field=time_add&sorder=desc'
-        html += wget(url, kat_site) + wget(url + opts, kat_site)
-    return html
-
-
-def kat_parse(html, tvs):
-    if args.name:
-        tv = tvs[tvs.keys()[0]]
-        stv_name = tv['simple_name']
-    else:
-        stv_name = None
-    log.debug("KAT: stv_name %s", stv_name)
-        
-    reg = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
-    creg = re.compile(reg)
-    soup = bs4.BeautifulSoup(html)
-    for d in soup.find_all('div', attrs={'class': 'markeredBlock'}):
-        t = ' '.join(d.text.split())
-        # log.debug("torType text <<<%s>>>", t)
-        m = creg.match(t)
-        if not m:
-            continue
-        pname = simplify_tv_show_name(m.group('name'))
-        pep = m.group('ep').strip().upper()
-        log.debug("KAT: found '%s' %s", pname, pep)
-        if args.name:
-            eq = is_name_eq(pname, stv_name, False)
-        else:
-            eq = pname in tvs
-        log.debug("KAT: eq name %s", eq)
-        if not eq:
-            continue
-        # drop bogus episods, like sXXe99
-        if int(pep[-2:]) > 90:
-            continue
-        if not pname in tvs:
-            tv = {
-                'simple_name': pname,
-                'avail_eps': [],
-            }
-            tvs[pname] = tv
-            log.debug("KAT: new tv")
-        tv = tvs[pname]
-        if not 'avail_eps' in tv:
-            tv['avail_eps'] = []
-        eps = tv['avail_eps']
-        if not pep in eps:
-            eps.append(pep)
-            log.debug("KAT: new ep")
-
-    return tvs
-
-
-############################################
-# Main
-############################################
-
-header_done = False
-today = time.strftime('%Y%m%d')
-max_name_len = 20
-
-def print_tv(tv):
-    global header_done
-
-    fmt = "%-" + str(max_name_len) + "s  %-10s  %-15s  %s"
-    indent = ' ' * (max_name_len + 2 + 10 + 2 + 15 + 2)
-    tw = textwrap.TextWrapper(width=78,
-                              replace_whitespace=False,
-                              subsequent_indent=indent)
-    if not header_done:
-        print
-        header_done = True
-        msg = fmt % ('TV', 'Seen', 'Next', 'Available')
-        msg = "\033[1m" + msg + "\033[0m"
-        print msg
-
-    pname = tv['simple_name'].title()
-    if 'name' in tv:
-        pname = tv['name']
-
-    plast = ''
-    if 'last_seen_ep' in tv:
-        plast = tv['last_seen_ep']
-
-    pnext = ''
-    now = datetime.datetime.now()
-    if 'eps' in tv:
-        d = tv['eps']
-        neps = [d[k] for k in sorted(d.keys())]
-        # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
-        for ep in neps:
-            tv_time = datetime.datetime.strptime(ep['date'], '%Y%m%d')
-            dh = 20 + 7
-            dt = datetime.timedelta(hours=dh)
-            tv_time += dt
-            if tv_time > now:
-                pnext = ep['no']
-                dt = tv_time - now
-                if dt.days:
-                    pnext += " in %dd" % dt.days
-                else:
-                    pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
-                break
-
-    pavail = ''
-    if 'avail_eps' in tv:
-        d = sorted(tv['avail_eps'])
-        if plast:
-            d = [ e for e in d if e > plast]
-        pavail = ', '.join(d)
-
-    if len(pname) > max_name_len:
-        print pname
-        pname = ''
-    msg = fmt % (pname, plast.lower(), pnext.lower(), pavail.lower())
-    print tw.fill(msg)
-
-    
-def show_progress(msg, i, sz):
-    if log.getEffectiveLevel() <= logging.INFO:
-        return
-    fmt = "%s: %d%%   "
-    per = i * 100.0 / sz
-        
-    # FIXME:
-    is_term = True
-    if is_term:
-        fmt = "\033[50D" + fmt
-  
-    print fmt % (msg, int(per)),
-    if per >= 100:
-        print
-    sys.stdout.flush()
-
-
-def scan(args):
-    conf_dir_name = '~/.config/tv_shows'
-    conf_dir = os.path.expanduser(conf_dir_name)
-    mkdir_p(conf_dir)
-
-    tvs = {}
-
-    # scan watchlist
-    wdir_name = conf_dir_name + '/watchlist'
-    wdir = os.path.expanduser(wdir_name)     
-    mkdir_p(wdir)
-    if args.scan_watchlist:
-        log.info("Scan watchlist at %s", wdir_name)
-        files = local_dl_get(wdir)
-        local_dl_parse(files, tvs)
-
-    # scan local files
-    ldir_name = '~/Downloads/torrents'
-    ldir = os.path.expanduser(ldir_name)
-    mkdir_p(ldir)
-    if args.scan_local:
-        log.info("Scan local movies at %s", ldir_name)
-        files = local_dl_get(ldir)
-        local_dl_parse(files, tvs)
-
-    # filter out shows without episods
-    # and update watchlist
-    for name in tvs:
-        if not 'last_seen_ep' in tvs[name]:
-            log.warning("Show without episods '%s'", name) 
-            del tvs[name]
-        else:
-            name = name + ' ' + tvs[name]['last_seen_ep']
-            name = os.path.join(wdir, name)
-            open(name, 'w').write('\n')
-            log.debug("touch '%s'", name)
-
-    return tvs
-
-
 def tvs_from_name(name):
     name = simplify_tv_show_name(name)
     tv = {
@@ -548,6 +273,387 @@ def tvs_from_name(name):
     tvs = {
         name: tv
     }
+    return tvs
+
+
+############################################
+# TvDB
+############################################
+class TvDB(object):
+    def __init__(self, name, url):
+        self.name = name
+        self.url = url
+        self.is_fast = False
+        pass
+
+
+    def __str__(self):
+        return "<TvDB %s>" % self.name
+
+
+    def get(self, tvs):
+        pass
+
+
+    def parse(self, tvs, text):
+        pass
+
+
+    def search(self, tvs):
+        text = self.get(tvs)
+        self.parse(tvs, text)
+
+    # def fetch_html_post(self, url, vals):
+    #     log.debug("Fetch POST %s", url)
+    #     log.debug("    Vals: %s", vals)
+    #     data = urllib.urlencode(vals)
+    #     req = urllib2.Request(url, data)
+    #     response = urllib2.urlopen(req)
+    #     html = response.read()
+    #     return html
+
+
+    # def fetch_html_get(self, url, vals):
+    #     url = url + urllib.urlencode(vals)
+    #     log.debug("Fetch GET %s", url)
+    #     response = urllib2.urlopen(url)
+    #     html = response.read()
+    #     return html
+
+
+class Local_TvDB(TvDB):
+    def __init__(self, name, dir_):
+        dir_ = os.path.expanduser(dir_)
+        super(Local_TvDB, self).__init__(name, dir_)
+        self.is_fast = True
+        mkdir_p(dir_)
+
+
+    def get(self, tvs):
+        log.debug("Search local dir %s", self.url)
+        files = []
+        for (dirpath, dirnames, filenames) in os.walk(self.url):
+            files.extend(filenames)
+        return files
+
+
+    def parse(self, tvs, files):
+        reg = '(?i)(.*)(S\d\dE\d\d).*'
+        creg = re.compile(reg)
+        for f in files:
+            m = creg.match(f)
+            if not m:
+                continue
+            log.debug("file '%s'", f)
+            pname = m.group(1)
+            pname = simplify_tv_show_name(pname)
+            pep = m.group(2).upper()
+            # log.debug("name '%s' ep %s", pname, pep)
+            act = 'ign'
+            if not pname in tvs:
+                act = 'add'
+                tv = {
+                    'simple_name': pname,
+                    'last_seen_ep': pep
+                }
+                tvs[pname] = tv
+            tv = tvs[pname]
+            if tv['last_seen_ep'] < pep:
+                act = 'upd'
+                tv['last_seen_ep'] = pep
+            # log.debug("%s\n", act)
+
+
+
+class KAT_TvDB(TvDB):
+    def __init__(self):
+        super(KAT_TvDB, self).__init__("KAT", 'http://kickass.to')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        html = ''
+        for tv_name in sorted(tvs.keys()):
+            log.info("Search KAT for '%s'", tv_name)
+            url = self.url + '/usearch/' + tv_name + 'category:tv/'
+            opts = '?field=time_add&sorder=desc'
+            html += wget(url, self.url) + wget(url + opts, self.url)
+        return html
+
+
+    def parse(self, tvs, html):
+        if args.name:
+            tv = tvs[tvs.keys()[0]]
+            stv_name = tv['simple_name']
+        else:
+            stv_name = None
+            log.debug("KAT: stv_name %s", stv_name)
+
+        reg = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
+        creg = re.compile(reg)
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('div', attrs={'class': 'markeredBlock'}):
+            t = ' '.join(d.text.split())
+            # log.debug("torType text <<<%s>>>", t)
+            m = creg.match(t)
+            if not m:
+                continue
+            pname = simplify_tv_show_name(m.group('name'))
+            pep = m.group('ep').strip().upper()
+            log.debug("KAT: found '%s' %s", pname, pep)
+            if args.name:
+                eq = is_name_eq(pname, stv_name, False)
+            else:
+                eq = pname in tvs
+            # log.debug("KAT: eq name %s", eq)
+            if not eq:
+                continue
+            # drop bogus episods, like sXXe99
+            if int(pep[-2:]) > 90:
+                continue
+            if not pname in tvs:
+                tv = {
+                    'simple_name': pname,
+                    'avail_eps': [],
+                }
+                tvs[pname] = tv
+                # log.debug("KAT: new tv")
+            tv = tvs[pname]
+            if not 'avail_eps' in tv:
+                tv['avail_eps'] = []
+            eps = tv['avail_eps']
+            if not pep in eps:
+                eps.append(pep)
+                # log.debug("KAT: new ep")
+
+
+class Air_Dates_TvDB(TvDB):
+    def __init__(self):
+        super(Air_Dates_TvDB, self).__init__("Air Dates",
+                                             'http://www.airdates.tv/')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        log.info("Get air dates from http://www.airdates.tv/")
+        url = 'http://www.airdates.tv/'
+        html = wget(url)
+        return html
+
+
+    def parse(self, tvs, html):
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('div', class_='day'):
+            date = d['data-date']
+            # log.debug("day %s, %s", date, d['class'])
+            for e in d.find_all('div', class_='title'):
+                text = e.text.split()
+                tv_name = ' '.join(text[:-1])
+                stv_name = simplify_tv_show_name(tv_name)
+                ep_no = text[-1]
+                # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
+                if not stv_name in tvs:
+                    continue
+                tv = tvs[stv_name]
+                if not 'eps' in tv:
+                    tv['eps'] = {}
+                eps = tv['eps']
+                if not ep_no in eps:
+                    ep = {
+                        'no': ep_no,
+                        'date': date
+                    }
+                    eps[ep_no] = ep
+
+        log.debug("air dates: %s shows", len(tvs))
+
+
+
+############################################
+# Pretty Print
+############################################
+
+
+class PrintTVs(object):
+    def __init__(self, tvs):
+        self.tvs = tvs
+        self.header_done = False
+        self.today = time.strftime('%Y%m%d')
+        self.max_name_len = 20
+        self.columns = [
+            {
+                'header': 'TV',
+                'name': 'simple_name',
+                'max-len': 30,
+                'convert': self.simple_name_convert,
+            },
+            {
+                'header': 'Sean',
+                'name': 'last_seen_ep',
+                'max-len': 6,
+                'convert': self.last_seen_ep_convert,
+            },
+            {
+                'header': 'Next',
+                'name': 'eps',
+                'max-len': 13,          # for 's01e07 in 14h'
+                'convert': self.eps_convert,
+            },
+            {
+                'header': 'Available',
+                'name': 'avail_eps',
+                'max-len': 24,          # for 3 eps
+                'convert': self.avail_eps_convert,
+            },
+        ]
+
+
+    def __str__(self):
+        return "<PrintTv>"
+
+
+    def simple_name_convert(self, tv):
+        if 'name' in tv:
+            pname = tv['name']
+        else:
+            pname = tv['simple_name'].title()
+        return pname
+
+
+    def last_seen_ep_convert(self, tv):
+        plast = tv['last_seen_ep'].lower()
+        return plast
+
+
+    def eps_convert(self, tv):
+        try:
+            d = tv['eps']
+        except:
+            return " "
+        neps = [d[k] for k in sorted(d.keys())]
+        # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
+        for ep in neps:
+            tv_time = datetime.datetime.strptime(ep['date'], '%Y%m%d')
+            dh = 20 + 7
+            dt = datetime.timedelta(hours=dh)
+            tv_time += dt
+            now = datetime.datetime.now()
+            if tv_time > now:
+                pnext = ep['no'].lower()
+                dt = tv_time - now
+                if dt.total_seconds() < 0:
+                    pnext += " soon"
+                elif dt.days:
+                    pnext += " in %dd" % dt.days
+                else:
+                    pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
+                return pnext
+
+            
+    def avail_eps_convert(self, tv):
+        try:
+            d = tv['avail_eps']
+        except:
+            return " "
+
+        d = [e.lower() for e in d]
+        if 'last_seen_ep' in tv:
+            lep = tv['last_seen_ep'].lower()
+            d = [e for e in d if e > lep]
+        d.sort()
+        return ', '.join(d)
+    
+        
+    def print_tvs(self):
+        self.print_analyze()
+        self.print_tv_header()
+        for key in sorted(self.tvs.keys()):
+            tv = self.tvs[key]
+            self.print_tv_show(tv)
+
+
+    def print_analyze(self):
+        new_columns = []
+        for col in self.columns:
+            add = False
+            for key in self.tvs:
+                tv = self.tvs[key]
+                if col['name'] in tv:
+                    add = True
+                    break
+            log.debug("col '%s' add %s", col['name'], add)
+            if add:
+                new_columns.append(col)
+        self.columns = new_columns
+
+
+    def print_tv_header(self):
+        header = "\033[1m"
+        for col in self.columns:
+            fmt = "%-" + str(col['max-len']) + 's  '
+            msg = fmt % col['header']
+            header += msg
+        header += "\033[0m"
+        print header
+
+
+    def print_tv_show(self, tv):
+        log.debug("tv %s", json.dumps(tv, indent=4))
+        nrows = 0
+        for col in self.columns:
+            log.debug("convert col '%s'", col['name'])
+            value = col['convert'](tv)
+            col['value'] = textwrap.wrap(value, width=col['max-len'],
+                replace_whitespace=True)
+            nrows = max(nrows, len(col['value']))
+
+        for row in range(nrows):
+            log.debug("prn row %d", row)
+            srow = ''
+            for col in self.columns:
+                fmt = '%-' + str(col['max-len']) + 's'
+                try:
+                    value = col['value'][row]
+                except:
+                    value = ' '
+                srow += fmt % value + '  '
+            print srow
+
+
+
+############################################
+# Main
+############################################
+
+
+def scan(args):
+    conf_dir = mkdir_p('~/.config/tv_shows')
+    wdir = mkdir_p(conf_dir + '/watchlist')
+    ldir = mkdir_p('~/Downloads/torrents')
+    tvs = {}
+
+    # scan watchlist
+    if args.scan_watchlist == 'yes':
+        log.info("Scan watchlist at %s", wdir)
+        Local_TvDB("watchlist", wdir).search(tvs)
+
+    # scan local files
+    if args.scan_local == 'yes':
+        log.info("Scan local shows at %s", ldir)
+        Local_TvDB("local shows", ldir).search(tvs)
+
+    # filter out shows without episods
+    # and update watchlist
+    for name in tvs:
+        if not 'last_seen_ep' in tvs[name]:
+            log.warning("Show without episods '%s'", name)
+            del tvs[name]
+        else:
+            name = name + ' ' + tvs[name]['last_seen_ep']
+            name = os.path.join(ldir, name)
+            open(name, 'w').write('\n')
+            log.debug("touch '%s'", name)
+
     return tvs
 
 
@@ -567,14 +673,12 @@ if __name__ == '__main__':
     if keys:
         log.debug("left tvs: %d shows", len(tvs))
 
-    if args.search_kat:
-        kat_search(tvs)
+    if args.search_kat == 'yes':
+        KAT_TvDB().search(tvs)
 
-    if args.search_air_dates:
-        air_dates_search(tvs)
- 
-    for stv_name in sorted(tvs.keys()):
-        log.debug("Simple name: '%s'", stv_name)
-        tv = tvs[stv_name]
-        print_tv(tv)
+    if args.search_air_dates == 'yes':
+        Air_Dates_TvDB().search(tvs)
+
+    prn = PrintTVs(tvs)
+    prn.print_tvs()
 
