@@ -461,7 +461,7 @@ def new_ep():
 
 def update_tv_show(name, tv):
     log.debug('%s', name)
-    update_air_dates(name, tv)
+    # update_air_dates(name, tv)
     update_torrents(name, tv)
     if args.subtitles:
         update_subtitles(name, tv)
