@@ -362,20 +362,23 @@ def print_tv(tv):
         plast = tv['last_seen_ep']
 
     pnext = ''
+    now = datetime.datetime.now()
     if 'eps' in tv:
         d = tv['eps']
         neps = [d[k] for k in sorted(d.keys())]
         # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
         for ep in neps:
-            if ep['date'] > today:
+            tv_time = datetime.datetime.strptime(ep['date'], '%Y%m%d')
+            dh = 20 + 7
+            dt = datetime.timedelta(hours=dh)
+            tv_time += dt
+            if tv_time > now:
                 pnext = ep['no']
-                d1 = datetime.datetime.strptime(today, '%Y%m%d')
-                d2 = datetime.datetime.strptime(ep['date'], '%Y%m%d')
-                td = d2 - d1
-                log.debug("d1 %s", d1)
-                log.debug("d2 %s", d2)
-                log.debug("td %s", td.days)
-                pnext += " in %dd" % td.days
+                dt = tv_time - now
+                if dt.days:
+                    pnext += " in %dd" % dt.days
+                else:
+                    pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
                 break
 
     pavail = ''
@@ -440,7 +443,9 @@ if __name__ == '__main__':
         log.debug("start search: %d,  '%s'", i, stv_name)
         html = kat_get(stv_name)
         kat_parse(kat_tvs, html, stv_name, strict_search)
-        if i == 100:
+        limit = 30
+        if i == limit:
+            log.warning("Only first %d torrents will be searched", limit+1)
             break
     log.debug("eps at kat %s", json.dumps(kat_tvs, indent=4))
   
