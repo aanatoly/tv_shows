@@ -15,7 +15,7 @@ progname = os.path.basename(sys.argv[0])
 def _init_log():
     name = progname
     x = logging.getLogger(name)
-    x.setLevel(logging.INFO)
+    x.setLevel(logging.WARNING)
     # x.setLevel(logging.DEBUG)
     h = logging.StreamHandler()
     # f = logging.Formatter("%(name)s (%(funcName)s:%(lineno)d) :: %(message)s")
@@ -33,6 +33,8 @@ import argparse
 desc = '''Get air dates from http://www.airdates.tv/'''
 p = argparse.ArgumentParser(description=desc)
 p.add_argument("--debug", help="debug mode", action="store_true")
+p.add_argument("-v", help="verbose mode",
+               dest='verbose', action="store_true")
 p.add_argument("-n", help="movie name to search", dest="name", metavar='STR')
 p.add_argument("-W", help="Do not check movies fomr watchlist",
                dest="watch", action="store_false", default=True)
@@ -42,6 +44,9 @@ p.add_argument("-A", help="Do not check air dates",
                dest="adates", action="store_false", default=True)
 
 args = p.parse_args()
+
+if args.verbose:
+    log.setLevel(logging.INFO)
 if args.debug:
     log.setLevel(logging.DEBUG)
 
@@ -95,10 +100,10 @@ def wget(url, referer=None, uagent=None):
     log.debug('wget %s', cmd)
     rc = sp.call(cmd, stderr=open('/dev/null', 'w'))
     if rc:
-        log.warn("wget to '%s' failed", url)
+        log.info("wget to '%s' failed", url)
         if rc < 0 or rc >= len(wget_err):
             rc = 1
-        log.warn("%s", wget_err[rc])
+        log.info("%s", wget_err[rc])
         return ''
 
     html = open(tmp, 'r').read()
@@ -394,7 +399,24 @@ def print_tv(tv):
     msg = fmt % (pname, plast.lower(), pnext.lower(), pavail.lower())
     print tw.fill(msg)
 
+    
+def show_progress(msg, i, sz):
+    if log.getEffectiveLevel() <= logging.INFO:
+        return
+    fmt = "%s: %d%%   "
+    per = i * 100.0 / sz
+        
+    # FIXME:
+    is_term = True
+    if is_term:
+        fmt = "\033[50D" + fmt
+  
+    print fmt % (msg, int(per)),
+    if per >= 100:
+        print
+    sys.stdout.flush()
 
+    
 if __name__ == '__main__':
     conf_dir_name = '~/.config/tv_shows'
     conf_dir = os.path.expanduser(conf_dir_name)
@@ -441,7 +463,9 @@ if __name__ == '__main__':
     kat_tvs = {}
     for i, stv_name in enumerate(search_set):
         log.debug("start search: %d,  '%s'", i, stv_name)
+        show_progress("Search KAT", i, len(search_set))
         html = kat_get(stv_name)
+        show_progress("Search KAT", i + 1, len(search_set))
         kat_parse(kat_tvs, html, stv_name, strict_search)
         limit = 30
         if i == limit:
