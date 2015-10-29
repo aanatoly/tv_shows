@@ -30,7 +30,7 @@ log = _init_log()
 # Argument parsing
 ############################################
 import argparse
-desc = '''Get air dates from http://www.airdates.tv/'''
+desc = '''Get TV shows' air dates from http://www.airdates.tv/'''
 p = argparse.ArgumentParser(description=desc)
 p.add_argument("--debug", help="debug mode", action="store_true")
 p.add_argument("-v", help="verbose mode",
@@ -440,6 +440,7 @@ if __name__ == '__main__':
         files = local_dl_get(ldir)
         local_dl_parse(files, tvs)
     search_set = [k for k in tvs.keys() if 'last_seen_ep' in tvs[k]]
+    search_set.sort()
     for stv_name in search_set:
         name = stv_name + ' ' + tvs[stv_name]['last_seen_ep']
         name = os.path.join(wdir, name)
@@ -473,7 +474,7 @@ if __name__ == '__main__':
             break
     log.debug("eps at kat %s", json.dumps(kat_tvs, indent=4))
   
-    for stv_name in kat_tvs:
+    for stv_name in sorted(kat_tvs.keys()):
         log.debug("Simple name: '%s'", stv_name)
         tv = kat_tvs[stv_name].copy()
         if stv_name in tvs:
