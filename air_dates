@@ -108,6 +108,9 @@ p.add_argument("-v", help="verbose mode",
     dest='verbose', action="store_true")
 p.add_argument("-n", help="Search first N shows only",
     metavar='N', dest="limit", type=int, default=30)
+p.add_argument("--scan-rare",
+    help="Scan rare (default: %(default)s)",
+    choices=['yes', 'no'], default='yes')
 p.add_argument("--scan-watchlist",
     help="Scan watchlist (default: %(default)s)",
     choices=['yes', 'no'], default='yes')
@@ -746,8 +749,14 @@ class PrintTVs(object):
 def scan(args):
     conf_dir = mkdir_p('~/.config/tv_shows')
     wdir = mkdir_p(conf_dir + '/watchlist')
+    rdir = mkdir_p(conf_dir + '/rare')
     ldir = mkdir_p('~/Downloads/torrents')
     tvs = {}
+
+    # scan watchlist
+    if args.scan_rare == 'yes':
+        log.info("Scan rare at %s", rdir)
+        Local_TvDB("watchlist", rdir).search(tvs)
 
     # scan watchlist
     if args.scan_watchlist == 'yes':
