@@ -154,7 +154,7 @@ if args.rare:
     args.search_air_dates = "yes"
     args.search_status = "yes"
     args.search_trends = "no"
-    
+
 if args.trends:
     args.scan_rare = "no"
     args.scan_watchlist = "no"
@@ -163,7 +163,7 @@ if args.trends:
     args.search_air_dates = "no"
     args.search_status = "no"
     args.search_trends = "yes"
-    
+
 ############################################
 # Misc
 ############################################
@@ -222,7 +222,7 @@ def wpost(url, vals):
     html = response.read()
     return html
 
-    
+
 def mkdir_p(path):
     path = os.path.expanduser(path)
     try:
@@ -526,7 +526,7 @@ class Status_TvDB(TvDB):
             html += wpost(url, vals)
         return html
 
-     
+
     def parse(self, tvs, html):
         if args.name:
             tv = tvs[tvs.keys()[0]]
@@ -539,7 +539,7 @@ class Status_TvDB(TvDB):
         # mulltiple result search
         for div in soup.find_all('div', attrs={'class': 'list-show-leftcol'}):
             vals = div.find_all('p')
-         
+
             # name
             pname = vals[0].text.split()
             pname = ' '.join(pname)
@@ -569,7 +569,7 @@ class Status_TvDB(TvDB):
             log.debug("name %s", t)
             if not t:
                 continue
-         
+
             # name
             pname = t.text.split()
             pname = ' '.join(pname)
@@ -609,15 +609,27 @@ class Trends_TvDB(TvDB):
         url = self.url + '/tv/'
         html = ''
         for p in ['', '2', '3', '4']:
-            html += wget(url + p, self.url)
+            xurl = url + p
+            log.info("Get KAT '%s'", xurl)
+            html += wget(xurl, self.url)
         return html
 
-     
+
     def parse(self, tvs, html):
         def add_trends(tvs, name, se):
             log.debug("show '%s', %s", name, se)
+            sname = simplify_tv_show_name(name)
+            if not sname in tvs:
+                tv = {
+                    'name': name,
+                    'simple_name': sname,
+                    'count': 0
+                }
+                tvs[sname] = tv
+            tv = tvs[sname]
+            tv['count'] += 1
 
-        
+
         soup = bs4.BeautifulSoup(html)
         for d in soup.find_all('a', attrs={'class': 'cellMainLink'}):
             t = d.text
@@ -628,7 +640,7 @@ class Trends_TvDB(TvDB):
                 continue
 
 
-    
+
 
 
 ############################################
@@ -670,10 +682,17 @@ class PrintTVs(object):
             {
                 'header': 'Status',
                 'name': 'status',
-                'max-len': 24, 
+                'max-len': 24,
                 'convert': self.status_convert,
             },
+            {
+                'header': 'Refs',
+                'name': 'count',
+                'max-len': 3,
+                'convert': self.count_convert,
+            },
         ]
+        self.sort_cols = [('count' , -1), ('simple_name', 1)]
 
 
     def __str__(self):
@@ -689,7 +708,10 @@ class PrintTVs(object):
 
 
     def last_seen_ep_convert(self, tv):
-        plast = tv['last_seen_ep'].lower()
+        try:
+            plast = tv['last_seen_ep'].lower()
+        except:
+            return ''
         return plast
 
 
@@ -697,7 +719,8 @@ class PrintTVs(object):
         try:
             d = tv['eps']
         except:
-            return " "
+            return ''
+        
         neps = [d[k] for k in sorted(d.keys())]
         # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
         for ep in neps:
@@ -717,7 +740,7 @@ class PrintTVs(object):
                     pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
                 return pnext
 
-            
+
     def avail_eps_convert(self, tv):
         try:
             d = tv['avail_eps']
@@ -730,7 +753,7 @@ class PrintTVs(object):
             d = [e for e in d if e > lep]
         d.sort()
         return ', '.join(d)
-    
+
 
     def status_convert(self, tv):
         try:
@@ -739,32 +762,66 @@ class PrintTVs(object):
             return ""
         return d
 
-    
-    def print_tvs(self):
-        self.print_analyze()
-        print
-        self.print_tv_header()
-        for key in sorted(self.tvs.keys()):
+
+    def count_convert(self, tv):
+        try:
+            d = str(tv['count'])
+        except:
+            return ""
+        return d
+
+
+    def cmp_tvs(self, a, b):
+        a = self.tvs[a]
+        b = self.tvs[b]
+        for k, sign in self.sort_cols:
+            k = 'value ' + k
+            c = cmp(a[k], b[k])
+            if c:
+                return c * sign
+        return 0
+
+
+    def resolve_tv(self, tv):
+        for col in self.columns:
+            try:
+                value = col['convert'](tv)
+            except:
+                vale = ''
+            tv['value ' + col['name']] = value.strip()
+
+
+    def resolve_tvs(self):
+        for key in self.tvs:
             tv = self.tvs[key]
-            self.print_tv_show(tv)
+            self.resolve_tv(tv)
+        keys = sorted(tvs.keys(), cmp = self.cmp_tvs)
 
-
-    def print_analyze(self):
         new_columns = []
         for col in self.columns:
             add = False
             for key in self.tvs:
                 tv = self.tvs[key]
-                if col['name'] in tv and col['convert'](tv).strip() :
+                if tv['value ' + col['name']] :
                     add = True
                     break
             log.debug("col '%s' add %s", col['name'], add)
             if add:
                 new_columns.append(col)
         self.columns = new_columns
+        return keys
+
+
+    def print_tvs(self):
+        keys = self.resolve_tvs()
+        self.print_tv_header()
+        for key in keys:
+            tv = self.tvs[key]
+            self.print_tv_show(tv)
 
 
     def print_tv_header(self):
+        print
         header = "\033[1m"
         for col in self.columns:
             fmt = "%-" + str(col['max-len']) + 's  '
@@ -779,7 +836,7 @@ class PrintTVs(object):
         nrows = 0
         for col in self.columns:
             # log.debug("convert col '%s'", col['name'])
-            value = col['convert'](tv)
+            value = tv['value ' + col['name']]
             col['value'] = textwrap.wrap(value, width=col['max-len'],
                 replace_whitespace=True)
             nrows = max(nrows, len(col['value']))
@@ -826,7 +883,9 @@ def scan(args):
         Local_TvDB("local shows", ldir).search(tvs)
 
 
-        
+    if args.scan_rare == 'yes' or args.scan_local == 'no':
+        return tvs
+
     # filter out shows without episods
     # and update watchlist
     for name in tvs:
@@ -834,10 +893,6 @@ def scan(args):
             log.warning("Show without episods '%s'", name)
             del tvs[name]
         else:
-            if args.scan_rare == 'yes':
-                continue
-            if args.scan_local == 'no':
-                continue
             name = name + ' ' + tvs[name]['last_seen_ep']
             name = os.path.join(wdir, name)
             open(name, 'w').write('\n')
@@ -870,6 +925,9 @@ if __name__ == '__main__':
 
     if args.search_status == 'yes':
         Status_TvDB().search(tvs)
+
+    if args.search_trends == 'yes':
+        Trends_TvDB().search(tvs)
 
     prn = PrintTVs(tvs)
     prn.print_tvs()
