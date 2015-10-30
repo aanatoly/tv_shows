@@ -142,6 +142,7 @@ log.debug("Args: %s", args)
 log.debug("Args: %s", dir(args))
 
 if args.rare:
+    args.scan_rare = "yes"
     args.scan_watchlist = "no"
     args.scan_local = "no"
     args.search_status = "yes"
@@ -694,6 +695,7 @@ class PrintTVs(object):
     
     def print_tvs(self):
         self.print_analyze()
+        print
         self.print_tv_header()
         for key in sorted(self.tvs.keys()):
             tv = self.tvs[key]
