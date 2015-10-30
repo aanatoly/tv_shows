@@ -127,9 +127,9 @@ p.add_argument("--search-status",
     help="Search IsMyShowCancelled (default: %(default)s)",
     choices=['yes', 'no'], default='no')
 p.add_argument("--search-trends",
-    help="Search KAT for trnds (default: %(default)s)",
+    help="Search KAT for trends (default: %(default)s)",
     choices=['yes', 'no'], default='no')
-p.add_argument("--rare", help="Search for rare shows",
+p.add_argument("--rare", help="Show rare shows",
     dest='rare', action="store_true")
 p.add_argument("--trends", help="Show trends",
     dest='trends', action="store_true")
