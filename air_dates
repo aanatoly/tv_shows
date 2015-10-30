@@ -728,17 +728,17 @@ class PrintTVs(object):
 
 
     def print_tv_show(self, tv):
-        log.debug("tv %s", json.dumps(tv, indent=4))
+        # log.debug("tv %s", json.dumps(tv, indent=4))
         nrows = 0
         for col in self.columns:
-            log.debug("convert col '%s'", col['name'])
+            # log.debug("convert col '%s'", col['name'])
             value = col['convert'](tv)
             col['value'] = textwrap.wrap(value, width=col['max-len'],
                 replace_whitespace=True)
             nrows = max(nrows, len(col['value']))
 
         for row in range(nrows):
-            log.debug("prn row %d", row)
+            # log.debug("prn row %d", row)
             srow = ''
             for col in self.columns:
                 fmt = '%-' + str(col['max-len']) + 's'
@@ -778,6 +778,8 @@ def scan(args):
         log.info("Scan local shows at %s", ldir)
         Local_TvDB("local shows", ldir).search(tvs)
 
+
+        
     # filter out shows without episods
     # and update watchlist
     for name in tvs:
@@ -785,8 +787,12 @@ def scan(args):
             log.warning("Show without episods '%s'", name)
             del tvs[name]
         else:
+            if args.scan_rare == 'yes':
+                continue
+            if args.scan_local == 'no':
+                continue
             name = name + ' ' + tvs[name]['last_seen_ep']
-            name = os.path.join(ldir, name)
+            name = os.path.join(wdir, name)
             open(name, 'w').write('\n')
             log.debug("touch '%s'", name)
 
