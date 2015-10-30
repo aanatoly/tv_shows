@@ -110,7 +110,7 @@ p.add_argument("-n", help="Search first N shows only",
     metavar='N', dest="limit", type=int, default=30)
 p.add_argument("--scan-rare",
     help="Scan rare (default: %(default)s)",
-    choices=['yes', 'no'], default='yes')
+    choices=['yes', 'no'], default='no')
 p.add_argument("--scan-watchlist",
     help="Scan watchlist (default: %(default)s)",
     choices=['yes', 'no'], default='yes')
