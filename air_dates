@@ -126,8 +126,13 @@ p.add_argument("--search-air-dates",
 p.add_argument("--search-status",
     help="Search IsMyShowCancelled (default: %(default)s)",
     choices=['yes', 'no'], default='no')
+p.add_argument("--search-trends",
+    help="Search KAT for trnds (default: %(default)s)",
+    choices=['yes', 'no'], default='no')
 p.add_argument("--rare", help="Search for rare shows",
     dest='rare', action="store_true")
+p.add_argument("--trends", help="Show trends",
+    dest='trends', action="store_true")
 p.add_argument("name",
     help="Show name",
     nargs='?')
@@ -142,10 +147,22 @@ log.debug("Args: %s", args)
 log.debug("Args: %s", dir(args))
 
 if args.rare:
+    args.scan_rare = "yes"
     args.scan_watchlist = "no"
     args.scan_local = "no"
+    args.search_kat = "kat"
+    args.search_air_dates = "yes"
     args.search_status = "yes"
-
+    args.search_trends = "no"
+    
+if args.trends:
+    args.scan_rare = "no"
+    args.scan_watchlist = "no"
+    args.scan_local = "no"
+    args.search_kat = "no"
+    args.search_air_dates = "no"
+    args.search_status = "no"
+    args.search_trends = "yes"
     
 ############################################
 # Misc
@@ -581,6 +598,37 @@ class Status_TvDB(TvDB):
 
 
 
+
+class Trends_TvDB(TvDB):
+    def __init__(self):
+        super(Trends_TvDB, self).__init__("Trends", 'http://kickass.to')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        url = self.url + '/tv/'
+        html = ''
+        for p in ['', '2', '3', '4']:
+            html += wget(url + p, self.url)
+        return html
+
+     
+    def parse(self, tvs, html):
+        def add_trends(tvs, name, se):
+            log.debug("show '%s', %s", name, se)
+
+        
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('a', attrs={'class': 'cellMainLink'}):
+            t = d.text
+            reg = '(?P<name>.+?)(?P<se>S\d\dE\d\d)'
+            m = re.match(reg, t)
+            if m:
+                add_trends(tvs, m.group('name'), m.group('se'))
+                continue
+
+
+    
 
 
 ############################################
