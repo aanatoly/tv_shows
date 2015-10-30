@@ -1,29 +1,94 @@
 tv_shows
 ========
 
-This script checks http://kickass.to site for the availability of new episodes
-of TV shows, optionally opening links to the new episodes in the browser.
-It can also check http://www.subtitleseeker.com for subtitles.
+Prints info about TV shows: next episode air date, avalable torrents,
+show status and more.
 
+Lets search for `dragons`.
 
-Show new episodes for 'Black Sails' TV show
-```bash
-$ ./tv_shows -s -n 'black sails' 
-TV            Old      New
-Black Sails            s01e01 + subs, s01e02 + subs, s01e03 + subs, s01e04 +
-                       subs, s01e05 + subs, s01e06 + subs, s01e07 + subs,
-                       s01e08 + subs
+```
+tv_shows dragons
+
+TV                              Available                 
+Dragons                                                   
+Dragons Den Ca                  s10e01, s10e02, s10e03    
+Dragons Den Uk                  s13e04                    
+Dreamworks Dragons Race To The  s03e01                    
+Edge                                                      
 ```
 
-Show new episodes for all shows in a db
-```bash
-$ ./tv_shows -a -s
-TV              Old      New
-Black Sails     s01e08
-Grimm           s03e16   in 7 days
-Justified       s05e11   in 4 days
-Rake            s03e07
-The Blacklist   s01e17   in 3 days
-The Originals   s01e17   in 18 days
-Vikings         s02e03   s02e04 + subs
+It also can print trends
 ```
+tv_shows --trends
+
+TV                              Refs  
+Heroes Reborn                   6    
+The Big Bang Theory             6    
+Arrow                           5    
+Gotham                          5    
+How to Get Away with Murder     5    
+Quantico                        5    
+The Flash 2014                  5    
+American Horror Story           4    
+Blindspot                       4    
+Game of Thrones                 4    
+Homeland                        4    
+Limitless                       4    
+South Park                      4    
+Supernatural                    4    
+Marvels Agents of S H I E L D   3    
+Scandal US                      3    
+The Originals                   3    
+```
+
+## Configuration
+Configuration is kept in `~/.config/tv_shows` dir.
+
+```
+CDIR=~/.config/tv_shows
+mkdir -p "$CDIR"
+```
+
+
+
+### Currently watched TV shows
+It can deduce watched shows from downloaded torrents. Just point `tv_shows`
+to the torrent download directory, it will get show names from all "some name
+sXXeXX" files.
+
+To do so, in a config directory, create soft link to the torrent download
+dir. Link's name must be `torrents`.
+
+```
+cd "$CDIR"
+ln -sf ~/Downloads/torrents torrents
+```
+
+It will also update permanent list (see berow).
+
+### Permanent List
+To always get updates for some show, just add a file to the `watchlist` direcory
+For example: to follow 'Vikings'
+
+```
+mkdir -p "$CDIR/watchlist"
+cd "$CDIR/watchlist"
+touch "Vikings s02e10"
+```
+
+### Rare List
+Has same structure as permanent list, use `tv_shows --rare` to query it.
+
+For example: to follow 'Extant' and 'Dark Matter'
+```
+mkdir -p "$CDIR/rare"
+cd "$CDIR/rare"
+touch "Extant s02e10"
+touch "Dark Matter s01e13"
+tv_shows --rare
+
+TV                              Sean    Status                    
+Dark Matter                     s01e13  On Air                    
+Extant                          s02e10  Cancelled                 
+```
+
