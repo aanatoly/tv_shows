@@ -2,9 +2,14 @@
 
 '''Print tv show info, eg next episod air date, available torrents etc.
 
-%(prog)s uses following web sites:
-Kickass Torrent - for available torrents
-Air Dates - for episod air date
+%(prog)s stores configuration in ~/.config/tv_show dir.
+torrents  - soft link to your torrent download dir, eg
+           ~/Downloads/torrents
+rare      - dir for 'rare' list
+watchlist - dir for 'watchlist' list
+
+List's dir keeps files of the form "name sXXeXX" and zero length.
+Its' ok to add / remove them manually.
 '''
 
 ############################################
@@ -368,7 +373,7 @@ class Local_TvDB(TvDB):
         dir_ = os.path.expanduser(dir_)
         super(Local_TvDB, self).__init__(name, dir_)
         self.is_fast = True
-        mkdir_p(dir_)
+        #mkdir_p(dir_)
 
 
     def get(self, tvs):
@@ -864,7 +869,7 @@ def scan(args):
     conf_dir = mkdir_p('~/.config/tv_shows')
     wdir = mkdir_p(conf_dir + '/watchlist')
     rdir = mkdir_p(conf_dir + '/rare')
-    ldir = mkdir_p('~/Downloads/torrents')
+    ldir = conf_dir + '/torrents'
     tvs = {}
 
     # scan watchlist
