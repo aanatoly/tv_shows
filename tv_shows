@@ -1,402 +1,174 @@
-#!/usr/bin/python2
+#!/usr/bin/python
 
-############################################
-# Logging
-############################################
-import logging
+'''Print tv show info, eg next episod air date, available torrents etc.
 
+%(prog)s stores configuration in ~/.config/tv_shows dir.
+torrents  - soft link to your torrent download dir, eg
+           ~/Downloads/torrents
+rare      - dir for 'rare' list
+watchlist - dir for 'watchlist' list
 
-def _init_log():
-    name = 'tv_show'
-    log = logging.getLogger(name)
-    log.setLevel(logging.INFO)
-    # log.setLevel(logging.DEBUG)
-    h = logging.StreamHandler()
-    f = logging.Formatter("%(name)s (%(funcName)s:%(lineno)d) :: %(message)s")
-    # f = logging.Formatter("%(message)s")
-    h.setFormatter(f)
-    log.addHandler(h)
-    return log
-
-log = _init_log()
-
-############################################
-# Argument parsing
-############################################
-import argparse
-desc = '''Looks up new opisodes of tv shows'''
-p = argparse.ArgumentParser(description=desc)
-p.add_argument("--debug", help="debug mode", action="store_true")
-p.add_argument("-n", help="exact show name, eg 'Black Sails'",
-               dest="name", metavar='NAME')
-p.add_argument("-a", help="scan all shows in db", dest="all",
-               action="store_true")
-p.add_argument("-i", help="db info", dest="info",
-               action="store_true")
-p.add_argument("-s", help="check available subtitles", dest="subtitles",
-               action="store_true")
-p.add_argument("-b", help="open links in a browser", dest="browser",
-               action="store_true")
-p.add_argument("-t", help="show trends and popular TV shows", dest="trends",
-               action="store_true")
-
-args = p.parse_args()
-if args.debug:
-    log.setLevel(logging.DEBUG)
-
-log.debug("Args: %s", args)
+List's dir keeps files of the form "name sXXeXX" and zero length.
+Its' ok to add / remove them manually.
+'''
 
 ############################################
 # Imports
 ############################################
+import logging
+import argparse
+import os
+import sys
 import subprocess as sp
-from bs4 import BeautifulSoup
+import bs4
 import re
 import zlib
-import datetime
-import json
-import textwrap
-import string
-import signal
-import sys
-import os
+import urllib2
 import urllib
+import pprint
+import time
+import json
 import tempfile
-
-############################################
-# Config
-############################################
-uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
-         'Gecko/20100101 Firefox/11.0'
-config_file = '~/.tv_shows'
-config_file_real = os.path.expanduser(config_file)
-
-default_xconf = {
-    'browser': 'firefox-bin',
-    'torrent_dir': '~/Downloads/torrents',
-    'tvs': {
-        'Black Sails': 's01e05',
-        'Elementary': 's02e15',
-    }
-}
-
-
-def config_read():
-    try:
-        text = open(config_file_real, 'r').read()
-    except:
-        config_write_default("does not exists")
-        exit(1)
-
-    try:
-        xconf = eval(text)
-        k1 = sorted(xconf.keys())
-        k2 = sorted(default_xconf.keys())
-        if k1 != k2:
-            raise Exception("wrong format")
-    except:
-        config_write_default("has wrong format", text)
-        exit(1)
-
-    ntvs = {}
-    for tv in xconf['tvs']:
-        ntv = string.capwords(tv)
-        ntvs[ntv] = xconf['tvs'][tv]
-    xconf['tvs'] = ntvs
-
-    return xconf
-
-
-def pprint_dict(d):
-    return json.dumps(d, indent=4, sort_keys=True) + '\n'
-
-
-def config_write(xconf):
-    open(config_file_real, 'w').write(pprint_dict(xconf))
-
-
-def config_write_default(msg, old_config=None):
-    print "Config file %s %s." % (config_file, msg)
-    if old_config:
-        print "It's saved as %s" % (config_file + ".bak",)
-        open(config_file_real + ".bak", 'w').write(old_config)
-    print "New one was created, please edit it and run script again"
-    config_write(default_xconf)
-
-
-def update_tvs_from_dl(xconf, tvs):
-    files = []
-    torrent_dir = os.path.expanduser(xconf['torrent_dir'])
-    for (dirpath, dirnames, filenames) in os.walk(torrent_dir):
-        files.extend(filenames)
-        files.extend(dirnames)
-    files = [f.replace("'", "") for f in files]
-    files = [f.replace(".", " ") for f in files]
-    files = [' '.join(f.split()) for f in files]
-
-    for tv in tvs:
-        rtv = '(?i)' + tv.replace("'", "") + '.*(S\d\dE\d\d).*'
-        for f in files:
-            m = re.search(rtv, f)
-            if not m:
-                continue
-            ep_last = m.group(1).lower()
-            if ep_last > tvs[tv]:
-                log.debug('update %s to %s', tv, ep_last)
-                tvs[tv] = ep_last
+import textwrap
+import datetime
 
 
 ############################################
-# Subtitles
+# Logging
 ############################################
-sub_site = 'http://www.subtitleseeker.com'
-
-
-def update_subtitles(name, tv):
-    name = name.replace("'", "")
-    update_subtitles_tv(name, tv)
-    update_subtitles_episodes(name, tv)
-
-
-def update_subtitles_tv(name, tv):
-    global re_subtitles
-
-    log.debug('%s', name)
-    url = sub_site + '/search/TV_TITLES/' + name
-    try:
-        html = wget(url, sub_site, uagent)
-    except:
-        print >> sys.stderr, '\n', sub_site, 'is unavailable'
-        return
-
-    soup = BeautifulSoup(html)
-    for d in soup.find_all('div', attrs={'class': 'boxRows'}):
-        try:
-            a = d.div.a
-            t = string.capwords(a.text).replace("'", "")
-        except:
-            continue
-        log.debug("title '%s', href '%s'", t, a['href'])
-        if t != name:
-            continue
-        tv['sub_url'] = a['href']
-        break
-
-
-re_subtitles = None
-
-
-def update_subtitles_episodes(name, tv):
-    global re_subtitles
-
-    log.debug('%s', name)
-    url = sub_site + '/search/TV_EPISODES/' + name
-    try:
-        html = wget(url, sub_site, uagent)
-    except:
-        print >> sys.stderr, '\n', sub_site, 'is unavailable'
-        return
-
-    if not re_subtitles:
-        r = '(?i)(?P<name>.*)\s+\(\d\d\d\d\)\s+(?P<ep>S\d\dE\d\d)\s+' + \
-            '(?P<sno>\d+)?\s+Sub'
-        re_subtitles = re.compile(r)
-
-    soup = BeautifulSoup(html)
-    eps = tv['eps']
-    for d in soup.find_all('div', attrs={'class': 'boxRows'}):
-        t = string.capwords(d.text).replace("'", "")
-        # log.debug("%s", t)
-        m = re_subtitles.match(t)
-        if not m:
-            continue
-        log.debug("%s %s %s", m.group('name'), m.group('ep'), m.group('sno'))
-        xname = string.capwords(m.group('name'))
-        xep = m.group('ep').lower()
-        xsno = m.group('sno')
-
-        if name != xname:
-            continue
-        if xep not in eps:
-            eps[xep] = new_ep()
-        eps[xep]['has_sub'] = (xsno != '' and xsno != '0')
+try:
+    # Module logging_conf should intialize root logger and, perhaps some
+    # others, and assign 'log' variable to proper logger.
+    from logging_conf import log
+except:
+    log = logging.getLogger()
+    log.setLevel(logging.WARNING)
+    # log.setLevel(logging.DEBUG)
+    h = logging.StreamHandler()
+    # f = MyFormatter()
+    f = logging.Formatter()
+    h.setFormatter(f)
+    log.addHandler(h)
 
 
 ############################################
-# Torrents
+# Argument parsing
 ############################################
-re_torrents = None
-kat_site = 'http://kickass.to'
+class ToggleAction(argparse.Action):
+    def __init__(self, **kw):
+        name = kw['option_strings'][0][2:]
+        if name.startswith('no-'):
+            name = name[3:]
+        kw['dest'] = name
+        kw['option_strings'] = ['--' + name, '--no-' + name]
+        kw['nargs'] = 0
+        kw['metavar'] = None
+        if 'default' not in kw:
+            kw['default'] = False
+        super(ToggleAction, self).__init__(**kw)
 
-def update_torrents(name, tv):
-    global re_torrents
-
-    log.debug('%s', name)
-    name = name.replace("'", "")
-    url = kat_site + '/usearch/' + name.replace(' ', '%20') + \
-        '%20category%3Atv/'
-    opts = '?field=time_add&sorder=desc'
-    html = wget(url, kat_site) + wget(url + opts, kat_site)
-    tv['torrent_url'] = url + opts
-
-    if not re_torrents:
-        re_torrents = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
-        re_torrents = re.compile(re_torrents)
-
-    eps = tv['eps']
-    soup = BeautifulSoup(html)
-    for d in soup.find_all('div', attrs={'class': 'torrentname'}):
-        t = string.capwords(d.text).replace("'", "")
-        # log.debug("%s", t)
-        m = re_torrents.match(t)
-        if not m:
-            continue
-        xname = string.capwords(m.group('name')).replace("'", "")
-        xep = m.group('ep').strip().lower()
-        # drop bogus episods, like sXXe99
-        if int(xep[-2:]) > 90:
-            continue
-        if name != xname:
-            continue
-        log.debug('%s %s', xname, xep)
-        if xep not in eps:
-            eps[xep] = new_ep()
-        eps[xep]['has_torrent'] = True
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest,
+                not option_string.startswith('--no-'))
 
 
-############################################
-# Trends
-############################################
-def add_trends(trends, name, se):
-    name = ' '.join(name.split())
-    se = se.upper()
-    log.debug('Name: %s', name)
-    log.debug('EP:   %s', se)
-    key = name.lower()
-    if key not in trends:
-        trends[key] = {'name': name, 'se': se, 'no': 1}
-    else:
-        trends[key]['no'] += 1
-        if trends[key]['se'] < se:
-            trends[key]['se'] = se
-
-
-def get_trends():
-    url = kat_site + '/tv/'
-    html = ''
-    for p in ['', '2', '3', '4']:
-        html += wget(url + p, kat_site)
-
-    # html = open('tv2.htm', 'r').read()
-    soup = BeautifulSoup(html)
-    trends = {}
-    for d in soup.find_all('a', attrs={'class': 'cellMainLink'}):
-        t = d.text.replace("'", "")
-        log.debug('Torrent name: "%s"', t)
-        t = t.replace(".", " ")
-        t = re.sub('(?i)HDTV.*', '', t)
-
-        reg = '(?P<name>.+?)(?P<se>S\d\dE\d\d)'
-        m = re.match(reg, t)
-        if m:
-            add_trends(trends, m.group('name'), m.group('se'))
-            continue
-
-        reg = '(?P<name>.+?)(?P<s>S\d\d)E\d+-(?P<e>E\d+)'
-        m = re.match(reg, t)
-        if m:
-            add_trends(trends, m.group('name'), m.group('s') + m.group('e'))
-            continue
-
-        reg = '(?P<name>.+?)(E\d+-)?(?P<e>E\d+)'
-        m = re.match(reg, t)
-        if m:
-            add_trends(trends, m.group('name'), m.group('e'))
-            continue
-
-    score = []
-    for key in trends:
-        score.append((trends[key]['no'],
-                      trends[key]['name'],
-                      trends[key]['se']))
-    score = sorted(score, key=lambda k: (-k[0], k[1]))
-    mlen = str(max([len(t[1]) for t in score]))
-    fmt = '%-' + mlen + 's  %-6s  %s'
-    log.debug('fmt %s', fmt)
-    print '\033[1m' + fmt % ('Name', 'Ep', 'Refs') + '\033[0m'
-    for t in score:
-        print fmt % (t[1], t[2], str(t[0]))
-
-############################################
-# Air dates
-############################################
-re_air_dates = None
-air_dates_site = 'http://www.tvrage.com'
-
-
-def air_dates_search_tv(name):
-    s = urllib.urlencode({'search': name})
-    url = '%s/search.php?%s' % (air_dates_site, s)
-    html = wget(url, air_dates_site)
-    return html
-
-    
-def air_dates_get_tv_url(name, details, html):
-    soup = BeautifulSoup(html)
-    for d in soup.find_all('h2'):
-        lname = d.a.string
-        tmp = lname.split()
-        # log.debug("tmp %s", tmp)
-        if tmp[-1][0] == '(' and tmp[-1][-1] == ')':
-            ldetails = tmp[-1][1:-1]
-            lname = ' '.join(tmp[0:-1])
+class SmartHelpFmt(argparse.RawDescriptionHelpFormatter):
+    def _format_action(self, action):
+        if type(action) == ToggleAction:
+            opts = action.option_strings
+            action.option_strings = ['--[no-]' + action.dest]
+            parts = super(SmartHelpFmt, self)._format_action(action)
+            action.option_strings = opts
         else:
-            ldetails = ''
-        lurl = d.a['href']
-        log.debug('name "%s", details "%s", url "%s"', lname, ldetails, lurl)
-        if name.lower() != lname.lower():
-            continue
-        if details is None:
-            return lurl
-        if details.lower() == ldetails.lower():
-            return lurl
-    return ''
+            parts = super(SmartHelpFmt, self)._format_action(action)
+        return parts
 
-    
-def air_dates_parse_dates(eps, html):
-    global re_air_dates
-    
-    soup = BeautifulSoup(html)
-    if not re_air_dates:
-        r = '(?i)\d+\s+(?P<s>\d+)x(?P<e>\d+)\s+(?P<d>\S+)'
-        re_air_dates = re.compile(r)
+    def _format_usage(self, usage, actions, groups, prefix):
+        for g in groups:
+            print(g)
+        text = super(SmartHelpFmt, self)._format_usage(usage,
+            actions, groups, prefix)
+        # print "Usage", text
+        return text
 
-    for d in soup.find_all('tr', attrs={'id': 'brow'}):
-        t = ' '.join(d.text.split())
-        log.debug("%s", t)
-        m = re_air_dates.match(t)
-        if not m:
-            continue
-        ep = 's%02de%02d' % (int(m.group('s')), int(m.group('e')))
-        try:
-            d = datetime.datetime.strptime(m.group('d'), '%d/%b/%Y')
-            d= d.replace(hour = 23, minute = 0)
-        except:
-            d = None
-        log.debug("%s %s", ep, d)
-        if ep not in eps:
-            eps[ep] = new_ep()
-        eps[ep]['air_date'] = d
+    def format_help(self):
+        text = super(SmartHelpFmt, self).format_help()
+        return text
 
-        
-def update_air_dates(name, tv):
-    html = air_dates_search_tv(name)
-    url = air_dates_get_tv_url(name, None, html)
-    if not url:
-        return
-    html = wget(url + '/episode_list/all', air_dates_site)
-    air_dates_parse_dates(tv['eps'], html)
 
+epilog = '''
+Example:
+   %(prog)s --rare
+   %(prog)s --trends
+'''
+
+
+p = argparse.ArgumentParser(
+    prog='tv_shows',
+    formatter_class=SmartHelpFmt,
+    description=__doc__,
+    epilog=epilog)
+p.add_argument("--debug", help="debug mode",
+    dest='debug', action="store_true")
+p.add_argument("-v", help="verbose mode",
+    dest='verbose', action="store_true")
+p.add_argument("-n", help="Search first N shows only",
+    metavar='N', dest="limit", type=int, default=30)
+p.add_argument("--scan-rare",
+    help="Scan rare (default: %(default)s)",
+    choices=['yes', 'no'], default='no')
+p.add_argument("--scan-watchlist",
+    help="Scan watchlist (default: %(default)s)",
+    choices=['yes', 'no'], default='yes')
+p.add_argument("--scan-local",
+    help="Scan local torrents (default: %(default)s)",
+    choices=['yes', 'no'], default='yes')
+p.add_argument("--search-kat",
+    help="Search KickAss Torrents (default: %(default)s)",
+    choices=['yes', 'no'], default='yes')
+p.add_argument("--search-air-dates",
+    help="Search Air Dates (default: %(default)s)",
+    choices=['yes', 'no'], default='yes')
+p.add_argument("--search-status",
+    help="Search IsMyShowCancelled (default: %(default)s)",
+    choices=['yes', 'no'], default='no')
+p.add_argument("--search-trends",
+    help="Search KAT for trends (default: %(default)s)",
+    choices=['yes', 'no'], default='no')
+p.add_argument("--rare", help="Show rare shows",
+    dest='rare', action="store_true")
+p.add_argument("--trends", help="Show trends",
+    dest='trends', action="store_true")
+p.add_argument("name",
+    help="Show name",
+    nargs='?')
+args = p.parse_args()
+
+if args.verbose:
+    log.setLevel(logging.INFO)
+if args.debug:
+    log.setLevel(logging.DEBUG)
+
+log.debug("Args: %s", args)
+log.debug("Args: %s", dir(args))
+
+if args.rare:
+    args.scan_rare = "yes"
+    args.scan_watchlist = "no"
+    args.scan_local = "no"
+    args.search_kat = "kat"
+    args.search_air_dates = "yes"
+    args.search_status = "yes"
+    args.search_trends = "no"
+
+if args.trends:
+    args.scan_rare = "no"
+    args.scan_watchlist = "no"
+    args.scan_local = "no"
+    args.search_kat = "no"
+    args.search_air_dates = "no"
+    args.search_status = "no"
+    args.search_trends = "yes"
 
 ############################################
 # Misc
@@ -412,7 +184,11 @@ wget_err = [
     "Protocol errors",
     "Server issued an error response",
 ]
-    
+
+wget_uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
+         'Gecko/20100101 Firefox/11.0'
+
+
 def wget(url, referer=None, uagent=None):
     dummy, tmp = tempfile.mkstemp()
     cmd = [
@@ -427,11 +203,12 @@ def wget(url, referer=None, uagent=None):
     log.debug('wget %s', cmd)
     rc = sp.call(cmd, stderr=open('/dev/null', 'w'))
     if rc:
+        log.info("wget to '%s' failed", url)
         if rc < 0 or rc >= len(wget_err):
             rc = 1
-        log.error("%s when ran '%s'", wget_err[rc], ' '.join(cmd))
-        exit(rc)
-    
+        log.info("%s", wget_err[rc])
+        return ''
+
     html = open(tmp, 'r').read()
     os.remove(tmp)
     try:
@@ -441,137 +218,723 @@ def wget(url, referer=None, uagent=None):
         pass
     return html
 
-    
-def new_tv_show():
-    tv = dict()
-    tv['eps'] = {}
-    tv['torrent_url'] = ''
-    tv['sub_url'] = ''
-    tv['dl_ep'] = 's00e00'
-    return tv
+
+def wpost(url, vals):
+    log.debug("Fetch POST %s", url)
+    log.debug("    Vals: %s", vals)
+    data = urllib.urlencode(vals)
+    req = urllib2.Request(url, data)
+    response = urllib2.urlopen(req)
+    html = response.read()
+    return html
 
 
-def new_ep():
-    ep = dict()
-    ep['air_date'] = None
-    ep['has_torrent'] = False
-    ep['has_sub'] = False
-    return ep
+def mkdir_p(path):
+    path = os.path.expanduser(path)
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno == os.errno.EEXIST and os.path.isdir(path):
+            pass
+        else: raise
+    return path
 
 
-def update_tv_show(name, tv):
-    log.debug('%s', name)
-    # update_air_dates(name, tv)
-    update_torrents(name, tv)
-    if args.subtitles:
-        update_subtitles(name, tv)
+def is_name_eq(name1, name2, strict_search):
+    if strict_search:
+        return name1 == name2
+    reg = [ '.*' + e for e in name2.split()]
+    reg = ''.join(reg)
+    return re.search(reg, name1) != None
 
 
-def print_tv_show(xconf, tv):
-    msg_dl = tv['dl_ep']
-    if msg_dl == 's00e00':
-        msg_dl = ''
+# The dict structure is
+# {
+#     "chicago pd": {
+#         "name": "Chicago PD",
+#         "eps": {
+#             "S03E03": {
+#                 "date": "20151014",
+#                 "no": "S03E03"
+#             },
+#             "S03E02": {
+#                 "date": "20151007",
+#                 "no": "S03E02"
+#             },
+#         }
+#     },
+#     "chicago fire": {
+#         "name": "Chicago Fire",
+#         "eps": {
+#             "S04E03": {
+#                 "date": "20151027",
+#                 "no": "S04E03"
+#             },
+#             "S04E01": {
+#                 "date": "20151013",
+#                 "no": "S04E01"
+#             }
+#         }
+#     },
+#     "continuum": {
+#         "name": "Continuum",
+#         "eps": {
+#             "S04E03": {
+#                 "date": "20150918",
+#                 "no": "S04E03"
+#             }
+#         }
+#     },
+#     "code black": {
+#         "name": "Code Black",
+#         "eps": {
+#             "S01E03": {
+#                 "date": "20151014",
+#                 "no": "S01E03"
+#             },
+#             "S01E02": {
+#                 "date": "20151007",
+#                 "no": "S01E02"
+#             }
+#         }
+#     },
+# }
 
-    # find new episodes
-    eps = tv['eps']
-    ep_ids = [ep_id for ep_id in sorted(eps) if ep_id > tv['dl_ep']]
-    log.debug('eps %s', ep_ids)
-    if not ep_ids:
-        return (msg_dl, '')
 
-    # find new episodes with torrents
-    ss = []
-    for ep_id in ep_ids:
-        if not eps[ep_id]['has_torrent']:
-            continue
-        s = ep_id
-        if eps[ep_id]['has_sub']:
-            s += ' + subs'
-        ss.append(s)
-    if ss:
-        if args.browser:
-            if tv['torrent_url']:
-                sp.Popen([xconf['browser'], tv['torrent_url']],
-                         stderr=open('/dev/null', 'r'))
-            if tv['sub_url']:
-                sp.Popen([xconf['browser'], tv['sub_url']],
-                         stderr=open('/dev/null', 'r'))
-        return (msg_dl, ', '.join(ss))
+def simplify_tv_show_name(pname):
+    pname = pname.replace("'", "")
+    pname = pname.replace(".", " ")
+    pname = pname.replace("&", " and ")
+    pname = ''.join([e for e in pname if e.isalnum() or e.isspace()])
+    pname = pname.lower()
+    pname = re.sub('\(\d\d\d\d\)', '', pname)
+    pname = ' '.join(pname.strip().split())
 
-    # find date of the next episode
-    today = datetime.datetime.today()
-    # msg_next = 'Next ' + ep_ids[0]
-    msg_next = ''
-    d = eps[ep_ids[0]]['air_date']
-    if d:
-        # msg_next += ' at ' + str(d.date())
-        days = (d - today).days # + 1
-        if days > 0:
-            msg_next += 'in ' + str(days) + ' days'
+    return unicode(pname)
+
+
+def tvs_from_name(name):
+    name = simplify_tv_show_name(name)
+    tv = {
+        'simple_name': name,
+    }
+    tvs = {
+        name: tv
+    }
+    return tvs
+
+
+############################################
+# TvDB
+############################################
+class TvDB(object):
+    def __init__(self, name, url):
+        self.name = name
+        self.url = url
+        self.is_fast = False
+        pass
+
+
+    def __str__(self):
+        return "<TvDB %s>" % self.name
+
+
+    def get(self, tvs):
+        pass
+
+
+    def parse(self, tvs, text):
+        pass
+
+
+    def search(self, tvs):
+        text = self.get(tvs)
+        self.parse(tvs, text)
+
+    # def fetch_html_post(self, url, vals):
+    #     log.debug("Fetch POST %s", url)
+    #     log.debug("    Vals: %s", vals)
+    #     data = urllib.urlencode(vals)
+    #     req = urllib2.Request(url, data)
+    #     response = urllib2.urlopen(req)
+    #     html = response.read()
+    #     return html
+
+
+    # def fetch_html_get(self, url, vals):
+    #     url = url + urllib.urlencode(vals)
+    #     log.debug("Fetch GET %s", url)
+    #     response = urllib2.urlopen(url)
+    #     html = response.read()
+    #     return html
+
+
+class Local_TvDB(TvDB):
+    def __init__(self, name, dir_):
+        dir_ = os.path.expanduser(dir_)
+        super(Local_TvDB, self).__init__(name, dir_)
+        self.is_fast = True
+        #mkdir_p(dir_)
+
+
+    def get(self, tvs):
+        log.debug("Search local dir %s", self.url)
+        files = []
+        for (dirpath, dirnames, filenames) in os.walk(self.url):
+            files.extend(filenames)
+        return files
+
+
+    def parse(self, tvs, files):
+        reg = '(?i)(.*)(S\d\dE\d\d).*'
+        creg = re.compile(reg)
+        for f in files:
+            m = creg.match(f)
+            if not m:
+                continue
+            log.debug("file '%s'", f)
+            pname = m.group(1)
+            pname = simplify_tv_show_name(pname)
+            pep = m.group(2).upper()
+            # log.debug("name '%s' ep %s", pname, pep)
+            act = 'ign'
+            if not pname in tvs:
+                act = 'add'
+                tv = {
+                    'simple_name': pname,
+                    'last_seen_ep': pep
+                }
+                tvs[pname] = tv
+            tv = tvs[pname]
+            if tv['last_seen_ep'] < pep:
+                act = 'upd'
+                tv['last_seen_ep'] = pep
+            # log.debug("%s\n", act)
+
+
+
+class KAT_TvDB(TvDB):
+    def __init__(self):
+        super(KAT_TvDB, self).__init__("KAT", 'http://kickass.to')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        html = ''
+        for tv_name in sorted(tvs.keys()):
+            log.info("Search KAT for '%s'", tv_name)
+            url = self.url + '/usearch/' + tv_name + 'category:tv/'
+            opts = '?field=time_add&sorder=desc'
+            html += wget(url, self.url) + wget(url + opts, self.url)
+        return html
+
+
+    def parse(self, tvs, html):
+        if args.name:
+            tv = tvs[tvs.keys()[0]]
+            stv_name = tv['simple_name']
         else:
-            msg_next += 'soon'
-    return (msg_dl, msg_next)
+            stv_name = None
+        log.debug("KAT: stv_name %s", stv_name)
+
+        reg = '(?i)(?P<name>.*)\s+(?P<ep>S\d\dE\d\d)'
+        creg = re.compile(reg)
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('div', attrs={'class': 'markeredBlock'}):
+            t = ' '.join(d.text.split())
+            # log.debug("torType text <<<%s>>>", t)
+            m = creg.match(t)
+            if not m:
+                continue
+            pname = simplify_tv_show_name(m.group('name'))
+            pep = m.group('ep').strip().upper()
+            log.debug("KAT: found '%s' %s", pname, pep)
+            if args.name:
+                eq = is_name_eq(pname, stv_name, False)
+            else:
+                eq = pname in tvs
+            # log.debug("KAT: eq name %s", eq)
+            if not eq:
+                continue
+            # drop bogus episods, like sXXe99
+            if int(pep[-2:]) > 90:
+                continue
+            if not pname in tvs:
+                tv = {
+                    'simple_name': pname,
+                    'avail_eps': [],
+                }
+                tvs[pname] = tv
+                # log.debug("KAT: new tv")
+            tv = tvs[pname]
+            if not 'avail_eps' in tv:
+                tv['avail_eps'] = []
+            eps = tv['avail_eps']
+            if not pep in eps:
+                eps.append(pep)
+                # log.debug("KAT: new ep")
 
 
-def signal_handler(signal, frame):
-    print
-    sys.exit(0)
+class Air_Dates_TvDB(TvDB):
+    def __init__(self):
+        super(Air_Dates_TvDB, self).__init__("Air Dates",
+                                             'http://www.airdates.tv/')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        log.info("Get air dates from http://www.airdates.tv/")
+        url = 'http://www.airdates.tv/'
+        html = wget(url)
+        return html
+
+
+    def parse(self, tvs, html):
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('div', class_='day'):
+            date = d['data-date']
+            # log.debug("day %s, %s", date, d['class'])
+            for e in d.find_all('div', class_='title'):
+                text = e.text.split()
+                tv_name = ' '.join(text[:-1])
+                stv_name = simplify_tv_show_name(tv_name)
+                ep_no = text[-1]
+                # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
+                if not stv_name in tvs:
+                    continue
+                tv = tvs[stv_name]
+                if not 'eps' in tv:
+                    tv['eps'] = {}
+                eps = tv['eps']
+                if not ep_no in eps:
+                    ep = {
+                        'no': ep_no,
+                        'date': date
+                    }
+                    eps[ep_no] = ep
+
+        log.debug("air dates: %s shows", len(tvs))
+
+
+class Status_TvDB(TvDB):
+    def __init__(self):
+        super(Status_TvDB, self).__init__("Status",
+            'http://www.ismyshowcancelled.com/')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        html = ''
+        for tv_name in sorted(tvs.keys()):
+            log.info("Search IsMyShowCancelled for '%s'", tv_name)
+            url = self.url + 'shows/search/page/1/'
+            vals = { 'Search': tv_name }
+            html += wpost(url, vals)
+        return html
+
+
+    def parse(self, tvs, html):
+        if args.name:
+            tv = tvs[tvs.keys()[0]]
+            stv_name = tv['simple_name']
+        else:
+            stv_name = None
+        log.debug("status: stv_name %s", stv_name)
+
+        soup = bs4.BeautifulSoup(html)
+        # mulltiple result search
+        for div in soup.find_all('div', attrs={'class': 'list-show-leftcol'}):
+            vals = div.find_all('p')
+
+            # name
+            pname = vals[0].text.split()
+            pname = ' '.join(pname)
+            pname = simplify_tv_show_name(pname)
+            if args.name:
+                eq = is_name_eq(pname, stv_name, False)
+            else:
+                eq = pname in tvs
+            if not eq:
+                continue
+            if not pname in tvs:
+                tv = {
+                    'simple_name': pname,
+                }
+                tvs[pname] = tv
+            tv = tvs[pname]
+
+            # status
+            val = vals[1].text.split()[1:]
+            val = ' '.join(val)
+            tv['status'] = val
+            log.debug("status: '%s' %s", tv['simple_name'], tv['status'])
+
+        for div in soup.find_all('div', attrs={'class': 'Post-Can'}):
+            # name
+            t = div.find('div', attrs={'class': 'Post-Can-Name'})
+            log.debug("name %s", t)
+            if not t:
+                continue
+
+            # name
+            pname = t.text.split()
+            pname = ' '.join(pname)
+            pname = simplify_tv_show_name(pname)
+            if args.name:
+                eq = is_name_eq(pname, stv_name, False)
+            else:
+                eq = pname in tvs
+            if not eq:
+                continue
+            if not pname in tvs:
+                tv = {
+                    'simple_name': pname,
+                }
+                tvs[pname] = tv
+            tv = tvs[pname]
+
+            # status
+            t = div.find('div', attrs={'class': 'Post-Can-Status'})
+            log.debug("status %s", t)
+            if not t:
+                continue
+            val = t.text.split()
+            val = ' '.join(val)
+            tv['status'] = val
+
+
+
+
+class Trends_TvDB(TvDB):
+    def __init__(self):
+        super(Trends_TvDB, self).__init__("Trends", 'http://kickass.to')
+        self.is_fast = True
+
+
+    def get(self, tvs):
+        url = self.url + '/tv/'
+        html = ''
+        for p in ['', '2', '3', '4']:
+            xurl = url + p
+            log.info("Get KAT '%s'", xurl)
+            html += wget(xurl, self.url)
+        return html
+
+
+    def parse(self, tvs, html):
+        def add_trends(tvs, name, se):
+            log.debug("show '%s', %s", name, se)
+            sname = simplify_tv_show_name(name)
+            if not sname in tvs:
+                tv = {
+                    'name': name,
+                    'simple_name': sname,
+                    'count': 0
+                }
+                tvs[sname] = tv
+            tv = tvs[sname]
+            tv['count'] += 1
+
+
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('a', attrs={'class': 'cellMainLink'}):
+            t = d.text
+            reg = '(?P<name>.+?)(?P<se>S\d\dE\d\d)'
+            m = re.match(reg, t)
+            if m:
+                add_trends(tvs, m.group('name'), m.group('se'))
+                continue
+
+
+
+
+
+############################################
+# Pretty Print
+############################################
+
+
+class PrintTVs(object):
+    def __init__(self, tvs):
+        self.tvs = tvs
+        self.header_done = False
+        self.today = time.strftime('%Y%m%d')
+        self.max_name_len = 20
+        self.columns = [
+            {
+                'header': 'TV',
+                'name': 'simple_name',
+                'max-len': 30,
+                'convert': self.simple_name_convert,
+            },
+            {
+                'header': 'Sean',
+                'name': 'last_seen_ep',
+                'max-len': 6,
+                'convert': self.last_seen_ep_convert,
+            },
+            {
+                'header': 'Next',
+                'name': 'eps',
+                'max-len': 13,          # for 's01e07 in 14h'
+                'convert': self.eps_convert,
+            },
+            {
+                'header': 'Available',
+                'name': 'avail_eps',
+                'max-len': 24,          # for 3 eps
+                'convert': self.avail_eps_convert,
+            },
+            {
+                'header': 'Status',
+                'name': 'status',
+                'max-len': 24,
+                'convert': self.status_convert,
+            },
+            {
+                'header': 'Refs',
+                'name': 'count',
+                'max-len': 3,
+                'convert': self.count_convert,
+            },
+        ]
+        self.sort_cols = [('count' , -1), ('simple_name', 1)]
+
+
+    def __str__(self):
+        return "<PrintTv>"
+
+
+    def simple_name_convert(self, tv):
+        if 'name' in tv:
+            pname = tv['name']
+        else:
+            pname = tv['simple_name'].title()
+        return pname
+
+
+    def last_seen_ep_convert(self, tv):
+        try:
+            plast = tv['last_seen_ep'].lower()
+        except:
+            return ''
+        return plast
+
+
+    def eps_convert(self, tv):
+        try:
+            d = tv['eps']
+        except:
+            return ''
+        
+        neps = [d[k] for k in sorted(d.keys())]
+        # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
+        for ep in neps:
+            tv_time = datetime.datetime.strptime(ep['date'], '%Y%m%d')
+            dh = 20 + 7
+            dt = datetime.timedelta(hours=dh)
+            tv_time += dt
+            now = datetime.datetime.now()
+            if tv_time > now:
+                pnext = ep['no'].lower()
+                dt = tv_time - now
+                if dt.total_seconds() < 0:
+                    pnext += " soon"
+                elif dt.days:
+                    pnext += " in %dd" % dt.days
+                else:
+                    pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
+                return pnext
+
+
+    def avail_eps_convert(self, tv):
+        try:
+            d = tv['avail_eps']
+        except:
+            return ""
+
+        d = [e.lower() for e in d]
+        if 'last_seen_ep' in tv:
+            lep = tv['last_seen_ep'].lower()
+            d = [e for e in d if e > lep]
+        d.sort()
+        return ', '.join(d)
+
+
+    def status_convert(self, tv):
+        try:
+            d = tv['status']
+        except:
+            return ""
+        return d
+
+
+    def count_convert(self, tv):
+        try:
+            d = str(tv['count'])
+        except:
+            return ""
+        return d
+
+
+    def cmp_tvs(self, a, b):
+        a = self.tvs[a]
+        b = self.tvs[b]
+        for k, sign in self.sort_cols:
+            k = 'value ' + k
+            c = cmp(a[k], b[k])
+            if c:
+                return c * sign
+        return 0
+
+
+    def resolve_tv(self, tv):
+        for col in self.columns:
+            try:
+                value = col['convert'](tv)
+            except:
+                vale = ''
+            tv['value ' + col['name']] = value.strip()
+
+
+    def resolve_tvs(self):
+        for key in self.tvs:
+            tv = self.tvs[key]
+            self.resolve_tv(tv)
+        keys = sorted(tvs.keys(), cmp = self.cmp_tvs)
+
+        new_columns = []
+        for col in self.columns:
+            add = False
+            for key in self.tvs:
+                tv = self.tvs[key]
+                if tv['value ' + col['name']] :
+                    add = True
+                    break
+            log.debug("col '%s' add %s", col['name'], add)
+            if add:
+                new_columns.append(col)
+        self.columns = new_columns
+        return keys
+
+
+    def print_tvs(self):
+        keys = self.resolve_tvs()
+        self.print_tv_header()
+        for key in keys:
+            tv = self.tvs[key]
+            self.print_tv_show(tv)
+
+
+    def print_tv_header(self):
+        print
+        header = "\033[1m"
+        for col in self.columns:
+            fmt = "%-" + str(col['max-len']) + 's  '
+            msg = fmt % col['header']
+            header += msg
+        header += "\033[0m"
+        print header
+
+
+    def print_tv_show(self, tv):
+        # log.debug("tv %s", json.dumps(tv, indent=4))
+        nrows = 0
+        for col in self.columns:
+            # log.debug("convert col '%s'", col['name'])
+            value = tv['value ' + col['name']]
+            col['value'] = textwrap.wrap(value, width=col['max-len'],
+                replace_whitespace=True)
+            nrows = max(nrows, len(col['value']))
+
+        for row in range(nrows):
+            # log.debug("prn row %d", row)
+            srow = ''
+            for col in self.columns:
+                fmt = '%-' + str(col['max-len']) + 's'
+                try:
+                    value = col['value'][row]
+                except:
+                    value = ' '
+                srow += fmt % value + '  '
+            print srow
+
+
 
 ############################################
 # Main
 ############################################
-def main():
-    signal.signal(signal.SIGINT, signal_handler)
 
-    xconf = config_read()
 
-    if args.info:
-        print config_file
-        print pprint_dict(xconf)
-        exit(0)
-
-    if args.trends:
-        get_trends()
-        exit(0)
-
+def scan(args):
+    conf_dir = mkdir_p('~/.config/tv_shows')
+    wdir = mkdir_p(conf_dir + '/watchlist')
+    rdir = mkdir_p(conf_dir + '/rare')
+    ldir = conf_dir + '/torrents'
     tvs = {}
 
-    nlen = 0
-    if args.name:
-        name = args.name
-        name = string.capwords(name)
-        nlen = len(name)
-        tv = new_tv_show()
-        tvs[name] = tv
-    elif args.all:
-        update_tvs_from_dl(xconf, xconf['tvs'])
-        config_write(xconf)
-        for name in sorted(xconf['tvs']):
-            if nlen < len(name):
-                nlen = len(name)
-            tv = new_tv_show()
-            tv['dl_ep'] = xconf['tvs'][name]
-            tvs[name] = tv
+    # scan watchlist
+    if args.scan_rare == 'yes':
+        log.info("Scan rare at %s", rdir)
+        Local_TvDB("watchlist", rdir).search(tvs)
 
-    if not tvs:
-        exit(0)
+    # scan watchlist
+    if args.scan_watchlist == 'yes':
+        log.info("Scan watchlist at %s", wdir)
+        Local_TvDB("watchlist", wdir).search(tvs)
 
-    nlen += 3
-    afmt = '%-' + str(nlen) + 's' + '%-9s%s'
-    indent = ' ' * (nlen + 9)
-    tw = textwrap.TextWrapper(width=78,
-                              replace_whitespace=False,
-                              subsequent_indent=indent)
+    # scan local files
+    if args.scan_local == 'yes':
+        log.info("Scan local shows at %s", ldir)
+        Local_TvDB("local shows", ldir).search(tvs)
 
-    print "\033[1m" + (afmt % ('TV', 'Old', 'New')) + "\033[0m"
-    for name in sorted(tvs):
-        print name, " ",
-        sys.stdout.flush()
-        update_tv_show(name, tvs[name])
-        msg = afmt % ((name,) + print_tv_show(xconf, tvs[name]))
-        msg = "\033[" + str(nlen) + "D" + tw.fill(msg)
-        print msg
+
+    if args.scan_rare == 'yes' or args.scan_local == 'no':
+        return tvs
+
+    # filter out shows without episods
+    # and update watchlist
+    for name in tvs:
+        if not 'last_seen_ep' in tvs[name]:
+            log.warning("Show without episods '%s'", name)
+            del tvs[name]
+        else:
+            name = name + ' ' + tvs[name]['last_seen_ep']
+            name = os.path.join(wdir, name)
+            open(name, 'w').write('\n')
+            log.debug("touch '%s'", name)
+
+    return tvs
 
 
 if __name__ == '__main__':
-    main()
+    if args.name:
+        tvs = tvs_from_name(args.name)
+    else:
+        tvs = scan(args)
+    log.debug("scan tvs: %d shows", len(tvs))
+
+    # apply torrent number limit
+    keys = sorted(tvs.keys())
+    del keys [0:args.limit]
+    for key in keys:
+        log.debug("del tv '%s'", key)
+        del tvs[key]
+    if keys:
+        log.debug("left tvs: %d shows", len(tvs))
+
+    if args.search_kat == 'yes':
+        KAT_TvDB().search(tvs)
+
+    if args.search_air_dates == 'yes':
+        Air_Dates_TvDB().search(tvs)
+
+    if args.search_status == 'yes':
+        Status_TvDB().search(tvs)
+
+    if args.search_trends == 'yes':
+        Trends_TvDB().search(tvs)
+
+    prn = PrintTVs(tvs)
+    prn.print_tvs()
+
