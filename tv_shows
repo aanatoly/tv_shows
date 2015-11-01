@@ -163,8 +163,8 @@ if args.rare:
 
 if args.trends:
     args.scan_rare = "no"
-    args.scan_watchlist = "no"
-    args.scan_local = "no"
+    args.scan_watchlist = "yes"
+    args.scan_local = "yes"
     args.search_kat = "no"
     args.search_air_dates = "no"
     args.search_status = "no"
@@ -633,6 +633,8 @@ class Trends_TvDB(TvDB):
                 }
                 tvs[sname] = tv
             tv = tvs[sname]
+            if not 'count' in tv:
+                tv['count'] = 0
             tv['count'] += 1
 
 
@@ -646,7 +648,9 @@ class Trends_TvDB(TvDB):
                 continue
 
 
-
+        for name in tvs.keys():
+            if not 'count' in tvs[name]:
+                del tvs[name]
 
 
 ############################################
@@ -857,7 +861,10 @@ class PrintTVs(object):
                 except:
                     value = ' '
                 srow += fmt % value + '  '
-            print srow
+            if args.search_trends and 'last_seen_ep' in tv:
+                print "\033[1m" + srow + "\033[0m"
+            else:
+                print srow
 
 
 
