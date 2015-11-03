@@ -31,6 +31,7 @@ import json
 import tempfile
 import textwrap
 import datetime
+import signal
 
 
 ############################################
@@ -324,6 +325,11 @@ def tvs_from_name(name):
     return tvs
 
 
+def signal_handler(signal, frame):
+    print
+    sys.exit(1)
+
+    
 ############################################
 # TvDB
 ############################################
@@ -915,6 +921,7 @@ def scan(args):
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)
     if args.name:
         tvs = tvs_from_name(args.name)
     else:
