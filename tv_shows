@@ -12,7 +12,7 @@ List's dir keeps files of the form "name sXXeXX" and zero length.
 Its' ok to add / remove them manually.
 '''
 
-version = "1.3"
+version = "1.4"
 
 ############################################
 # Imports
