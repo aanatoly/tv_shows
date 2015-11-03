@@ -861,7 +861,7 @@ class PrintTVs(object):
                 except:
                     value = ' '
                 srow += fmt % value + '  '
-            if args.search_trends and 'last_seen_ep' in tv:
+            if args.search_trends == 'yes' and 'last_seen_ep' in tv:
                 print "\033[1m" + srow + "\033[0m"
             else:
                 print srow
