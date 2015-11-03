@@ -12,6 +12,8 @@ List's dir keeps files of the form "name sXXeXX" and zero length.
 Its' ok to add / remove them manually.
 '''
 
+version = "1.3"
+
 ############################################
 # Imports
 ############################################
@@ -113,6 +115,8 @@ p = argparse.ArgumentParser(
     epilog=epilog)
 p.add_argument("--debug", help="debug mode",
                dest='debug', action="store_true")
+p.add_argument("--version", help="print version and exit",
+               action="store_true")
 p.add_argument("-v", help="verbose mode",
                dest='verbose', action="store_true")
 p.add_argument("-n", help="Search first N shows only",
@@ -155,6 +159,10 @@ if args.debug:
 log.debug("Args: %s", args)
 log.debug("Args: %s", dir(args))
 
+if args.version:
+    print "Version", version
+    exit(0)
+    
 if args.rare:
     args.scan_rare = "yes"
     args.scan_watchlist = "no"
