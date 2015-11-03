@@ -167,7 +167,7 @@ if args.rare:
     args.scan_rare = "yes"
     args.scan_watchlist = "no"
     args.scan_local = "no"
-    args.search_kat = "kat"
+    args.search_kat = "yes"
     args.search_air_dates = "yes"
     args.search_status = "yes"
     args.search_trends = "no"
@@ -417,7 +417,7 @@ class KAT_TvDB(TvDB):
     def get(self, tvs):
         html = ''
         for tv_name in sorted(tvs.keys()):
-            log.info("Search KAT for '%s'", tv_name)
+            log.info("Search 'KAT' for '%s'", tv_name)
             url = self.url + '/usearch/' + tv_name + 'category:tv/'
             opts = '?field=time_add&sorder=desc'
             html += wget(url, self.url) + wget(url + opts, self.url)
@@ -477,7 +477,7 @@ class Air_Dates_TvDB(TvDB):
         self.is_fast = True
 
     def get(self, tvs):
-        log.info("Get air dates from http://www.airdates.tv/")
+        log.info("Search 'Air Dates'")
         url = 'http://www.airdates.tv/'
         html = wget(url)
         return html
@@ -519,7 +519,7 @@ class Status_TvDB(TvDB):
     def get(self, tvs):
         html = ''
         for tv_name in sorted(tvs.keys()):
-            log.info("Search IsMyShowCancelled for '%s'", tv_name)
+            log.info("Search 'IsMyShowCancelled' for '%s'", tv_name)
             url = self.url + 'shows/search/page/1/'
             vals = {'Search': tv_name}
             html += wpost(url, vals)
