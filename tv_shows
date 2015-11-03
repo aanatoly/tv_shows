@@ -56,6 +56,7 @@ except:
 # Argument parsing
 ############################################
 class ToggleAction(argparse.Action):
+
     def __init__(self, **kw):
         name = kw['option_strings'][0][2:]
         if name.startswith('no-'):
@@ -74,6 +75,7 @@ class ToggleAction(argparse.Action):
 
 
 class SmartHelpFmt(argparse.RawDescriptionHelpFormatter):
+
     def _format_action(self, action):
         if type(action) == ToggleAction:
             opts = action.option_strings
@@ -88,7 +90,7 @@ class SmartHelpFmt(argparse.RawDescriptionHelpFormatter):
         for g in groups:
             print(g)
         text = super(SmartHelpFmt, self)._format_usage(usage,
-            actions, groups, prefix)
+                                                       actions, groups, prefix)
         # print "Usage", text
         return text
 
@@ -110,39 +112,39 @@ p = argparse.ArgumentParser(
     description=__doc__,
     epilog=epilog)
 p.add_argument("--debug", help="debug mode",
-    dest='debug', action="store_true")
+               dest='debug', action="store_true")
 p.add_argument("-v", help="verbose mode",
-    dest='verbose', action="store_true")
+               dest='verbose', action="store_true")
 p.add_argument("-n", help="Search first N shows only",
-    metavar='N', dest="limit", type=int, default=30)
+               metavar='N', dest="limit", type=int, default=30)
 p.add_argument("--scan-rare",
-    help="Scan rare (default: %(default)s)",
-    choices=['yes', 'no'], default='no')
+               help="Scan rare (default: %(default)s)",
+               choices=['yes', 'no'], default='no')
 p.add_argument("--scan-watchlist",
-    help="Scan watchlist (default: %(default)s)",
-    choices=['yes', 'no'], default='yes')
+               help="Scan watchlist (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
 p.add_argument("--scan-local",
-    help="Scan local torrents (default: %(default)s)",
-    choices=['yes', 'no'], default='yes')
+               help="Scan local torrents (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
 p.add_argument("--search-kat",
-    help="Search KickAss Torrents (default: %(default)s)",
-    choices=['yes', 'no'], default='yes')
+               help="Search KickAss Torrents (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
 p.add_argument("--search-air-dates",
-    help="Search Air Dates (default: %(default)s)",
-    choices=['yes', 'no'], default='yes')
+               help="Search Air Dates (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
 p.add_argument("--search-status",
-    help="Search IsMyShowCancelled (default: %(default)s)",
-    choices=['yes', 'no'], default='no')
+               help="Search IsMyShowCancelled (default: %(default)s)",
+               choices=['yes', 'no'], default='no')
 p.add_argument("--search-trends",
-    help="Search KAT for trends (default: %(default)s)",
-    choices=['yes', 'no'], default='no')
+               help="Search KAT for trends (default: %(default)s)",
+               choices=['yes', 'no'], default='no')
 p.add_argument("--rare", help="Show rare shows",
-    dest='rare', action="store_true")
+               dest='rare', action="store_true")
 p.add_argument("--trends", help="Show trends",
-    dest='trends', action="store_true")
+               dest='trends', action="store_true")
 p.add_argument("name",
-    help="Show name",
-    nargs='?')
+               help="Show name",
+               nargs='?')
 args = p.parse_args()
 
 if args.verbose:
@@ -187,7 +189,7 @@ wget_err = [
 ]
 
 wget_uagent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) ' + \
-         'Gecko/20100101 Firefox/11.0'
+    'Gecko/20100101 Firefox/11.0'
 
 
 def wget(url, referer=None, uagent=None):
@@ -213,7 +215,7 @@ def wget(url, referer=None, uagent=None):
     html = open(tmp, 'r').read()
     os.remove(tmp)
     try:
-        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
         html = d.decompress(html)
     except:
         pass
@@ -234,17 +236,18 @@ def mkdir_p(path):
     path = os.path.expanduser(path)
     try:
         os.makedirs(path)
-    except OSError as exc: # Python >2.5
+    except OSError as exc:  # Python >2.5
         if exc.errno == os.errno.EEXIST and os.path.isdir(path):
             pass
-        else: raise
+        else:
+            raise
     return path
 
 
 def is_name_eq(name1, name2, strict_search):
     if strict_search:
         return name1 == name2
-    reg = [ '.*' + e for e in name2.split()]
+    reg = ['.*' + e for e in name2.split()]
     reg = ''.join(reg)
     return re.search(reg, name1) != None
 
@@ -334,24 +337,21 @@ def signal_handler(signal, frame):
 # TvDB
 ############################################
 class TvDB(object):
+
     def __init__(self, name, url):
         self.name = name
         self.url = url
         self.is_fast = False
         pass
 
-
     def __str__(self):
         return "<TvDB %s>" % self.name
-
 
     def get(self, tvs):
         pass
 
-
     def parse(self, tvs, text):
         pass
-
 
     def search(self, tvs):
         text = self.get(tvs)
@@ -359,12 +359,12 @@ class TvDB(object):
 
 
 class Local_TvDB(TvDB):
+
     def __init__(self, name, dir_):
         dir_ = os.path.expanduser(dir_)
         super(Local_TvDB, self).__init__(name, dir_)
         self.is_fast = True
-        #mkdir_p(dir_)
-
+        # mkdir_p(dir_)
 
     def get(self, tvs):
         log.debug("Search local dir %s", self.url)
@@ -372,7 +372,6 @@ class Local_TvDB(TvDB):
         for (dirpath, dirnames, filenames) in os.walk(self.url):
             files.extend(filenames)
         return files
-
 
     def parse(self, tvs, files):
         reg = '(?i)(.*)(S\d\dE\d\d).*'
@@ -401,12 +400,11 @@ class Local_TvDB(TvDB):
             # log.debug("%s\n", act)
 
 
-
 class KAT_TvDB(TvDB):
+
     def __init__(self):
         super(KAT_TvDB, self).__init__("KAT", 'http://kickass.to')
         self.is_fast = True
-
 
     def get(self, tvs):
         html = ''
@@ -416,7 +414,6 @@ class KAT_TvDB(TvDB):
             opts = '?field=time_add&sorder=desc'
             html += wget(url, self.url) + wget(url + opts, self.url)
         return html
-
 
     def parse(self, tvs, html):
         if args.name:
@@ -465,18 +462,17 @@ class KAT_TvDB(TvDB):
 
 
 class Air_Dates_TvDB(TvDB):
+
     def __init__(self):
         super(Air_Dates_TvDB, self).__init__("Air Dates",
                                              'http://www.airdates.tv/')
         self.is_fast = True
-
 
     def get(self, tvs):
         log.info("Get air dates from http://www.airdates.tv/")
         url = 'http://www.airdates.tv/'
         html = wget(url)
         return html
-
 
     def parse(self, tvs, html):
         soup = bs4.BeautifulSoup(html)
@@ -506,21 +502,20 @@ class Air_Dates_TvDB(TvDB):
 
 
 class Status_TvDB(TvDB):
+
     def __init__(self):
         super(Status_TvDB, self).__init__("Status",
-            'http://www.ismyshowcancelled.com/')
+                                          'http://www.ismyshowcancelled.com/')
         self.is_fast = True
-
 
     def get(self, tvs):
         html = ''
         for tv_name in sorted(tvs.keys()):
             log.info("Search IsMyShowCancelled for '%s'", tv_name)
             url = self.url + 'shows/search/page/1/'
-            vals = { 'Search': tv_name }
+            vals = {'Search': tv_name}
             html += wpost(url, vals)
         return html
-
 
     def parse(self, tvs, html):
         if args.name:
@@ -592,13 +587,11 @@ class Status_TvDB(TvDB):
             tv['status'] = val
 
 
-
-
 class Trends_TvDB(TvDB):
+
     def __init__(self):
         super(Trends_TvDB, self).__init__("Trends", 'http://kickass.to')
         self.is_fast = True
-
 
     def get(self, tvs):
         url = self.url + '/tv/'
@@ -608,7 +601,6 @@ class Trends_TvDB(TvDB):
             log.info("Get KAT '%s'", xurl)
             html += wget(xurl, self.url)
         return html
-
 
     def parse(self, tvs, html):
         def add_trends(tvs, name, se):
@@ -626,7 +618,6 @@ class Trends_TvDB(TvDB):
                 tv['count'] = 0
             tv['count'] += 1
 
-
         soup = bs4.BeautifulSoup(html)
         for d in soup.find_all('a', attrs={'class': 'cellMainLink'}):
             t = d.text
@@ -635,7 +626,6 @@ class Trends_TvDB(TvDB):
             if m:
                 add_trends(tvs, m.group('name'), m.group('se'))
                 continue
-
 
         for name in tvs.keys():
             if not 'count' in tvs[name]:
@@ -648,6 +638,7 @@ class Trends_TvDB(TvDB):
 
 
 class PrintTVs(object):
+
     def __init__(self, tvs):
         self.tvs = tvs
         self.header_done = False
@@ -691,12 +682,10 @@ class PrintTVs(object):
                 'convert': self.count_convert,
             },
         ]
-        self.sort_cols = [('count' , -1), ('simple_name', 1)]
-
+        self.sort_cols = [('count', -1), ('simple_name', 1)]
 
     def __str__(self):
         return "<PrintTv>"
-
 
     def simple_name_convert(self, tv):
         if 'name' in tv:
@@ -705,14 +694,12 @@ class PrintTVs(object):
             pname = tv['simple_name'].title()
         return pname
 
-
     def last_seen_ep_convert(self, tv):
         try:
             plast = tv['last_seen_ep'].lower()
         except:
             return ''
         return plast
-
 
     def eps_convert(self, tv):
         try:
@@ -739,7 +726,6 @@ class PrintTVs(object):
                     pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
                 return pnext
 
-
     def avail_eps_convert(self, tv):
         try:
             d = tv['avail_eps']
@@ -753,7 +739,6 @@ class PrintTVs(object):
         d.sort()
         return ', '.join(d)
 
-
     def status_convert(self, tv):
         try:
             d = tv['status']
@@ -761,14 +746,12 @@ class PrintTVs(object):
             return ""
         return d
 
-
     def count_convert(self, tv):
         try:
             d = str(tv['count'])
         except:
             return ""
         return d
-
 
     def cmp_tvs(self, a, b):
         a = self.tvs[a]
@@ -780,7 +763,6 @@ class PrintTVs(object):
                 return c * sign
         return 0
 
-
     def resolve_tv(self, tv):
         for col in self.columns:
             try:
@@ -789,19 +771,18 @@ class PrintTVs(object):
                 vale = ''
             tv['value ' + col['name']] = value.strip()
 
-
     def resolve_tvs(self):
         for key in self.tvs:
             tv = self.tvs[key]
             self.resolve_tv(tv)
-        keys = sorted(tvs.keys(), cmp = self.cmp_tvs)
+        keys = sorted(tvs.keys(), cmp=self.cmp_tvs)
 
         new_columns = []
         for col in self.columns:
             add = False
             for key in self.tvs:
                 tv = self.tvs[key]
-                if tv['value ' + col['name']] :
+                if tv['value ' + col['name']]:
                     add = True
                     break
             log.debug("col '%s' add %s", col['name'], add)
@@ -810,14 +791,12 @@ class PrintTVs(object):
         self.columns = new_columns
         return keys
 
-
     def print_tvs(self):
         keys = self.resolve_tvs()
         self.print_tv_header()
         for key in keys:
             tv = self.tvs[key]
             self.print_tv_show(tv)
-
 
     def print_tv_header(self):
         print
@@ -829,7 +808,6 @@ class PrintTVs(object):
         header += "\033[0m"
         print header
 
-
     def print_tv_show(self, tv):
         # log.debug("tv %s", json.dumps(tv, indent=4))
         nrows = 0
@@ -837,7 +815,7 @@ class PrintTVs(object):
             # log.debug("convert col '%s'", col['name'])
             value = tv['value ' + col['name']]
             col['value'] = textwrap.wrap(value, width=col['max-len'],
-                replace_whitespace=True)
+                                         replace_whitespace=True)
             nrows = max(nrows, len(col['value']))
 
         for row in range(nrows):
@@ -854,7 +832,6 @@ class PrintTVs(object):
                 print "\033[1m" + srow + "\033[0m"
             else:
                 print srow
-
 
 
 ############################################
@@ -884,7 +861,6 @@ def scan(args):
         log.info("Scan local shows at %s", ldir)
         Local_TvDB("local shows", ldir).search(tvs)
 
-
     if args.scan_rare == 'yes' or args.scan_local == 'no':
         return tvs
 
@@ -913,7 +889,7 @@ if __name__ == '__main__':
 
     # apply torrent number limit
     keys = sorted(tvs.keys())
-    del keys [0:args.limit]
+    del keys[0:args.limit]
     for key in keys:
         log.debug("del tv '%s'", key)
         del tvs[key]
@@ -934,4 +910,3 @@ if __name__ == '__main__':
 
     prn = PrintTVs(tvs)
     prn.print_tvs()
-
