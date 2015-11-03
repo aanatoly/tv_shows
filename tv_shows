@@ -329,7 +329,7 @@ def signal_handler(signal, frame):
     print
     sys.exit(1)
 
-    
+
 ############################################
 # TvDB
 ############################################
@@ -356,23 +356,6 @@ class TvDB(object):
     def search(self, tvs):
         text = self.get(tvs)
         self.parse(tvs, text)
-
-    # def fetch_html_post(self, url, vals):
-    #     log.debug("Fetch POST %s", url)
-    #     log.debug("    Vals: %s", vals)
-    #     data = urllib.urlencode(vals)
-    #     req = urllib2.Request(url, data)
-    #     response = urllib2.urlopen(req)
-    #     html = response.read()
-    #     return html
-
-
-    # def fetch_html_get(self, url, vals):
-    #     url = url + urllib.urlencode(vals)
-    #     log.debug("Fetch GET %s", url)
-    #     response = urllib2.urlopen(url)
-    #     html = response.read()
-    #     return html
 
 
 class Local_TvDB(TvDB):
@@ -736,7 +719,7 @@ class PrintTVs(object):
             d = tv['eps']
         except:
             return ''
-        
+
         neps = [d[k] for k in sorted(d.keys())]
         # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
         for ep in neps:
