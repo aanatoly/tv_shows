@@ -785,7 +785,9 @@ class PrintTVs(object):
             try:
                 value = col['convert'](tv)
             except:
-                vale = ''
+                value = ''
+            if value is None:
+                value = ''
             tv['value ' + col['name']] = value.strip()
 
     def resolve_tvs(self):
