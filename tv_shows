@@ -12,7 +12,13 @@ List's dir keeps files of the form "name sXXeXX" and zero length.
 Its' ok to add / remove them manually.
 '''
 
-version = "1.4"
+prog_name = "tv_shows"
+prog_version = "1.4"
+prog_epilog = '''
+Example:
+   %(prog)s --rare
+   %(prog)s --trends
+'''
 
 ############################################
 # Imports
@@ -21,6 +27,7 @@ import logging
 import argparse
 import os
 import sys
+import json
 import subprocess as sp
 import bs4
 import re
@@ -29,7 +36,6 @@ import urllib2
 import urllib
 import pprint
 import time
-import json
 import tempfile
 import textwrap
 import datetime
@@ -57,66 +63,16 @@ except:
 ############################################
 # Argument parsing
 ############################################
-class ToggleAction(argparse.Action):
-
-    def __init__(self, **kw):
-        name = kw['option_strings'][0][2:]
-        if name.startswith('no-'):
-            name = name[3:]
-        kw['dest'] = name
-        kw['option_strings'] = ['--' + name, '--no-' + name]
-        kw['nargs'] = 0
-        kw['metavar'] = None
-        if 'default' not in kw:
-            kw['default'] = False
-        super(ToggleAction, self).__init__(**kw)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest,
-                not option_string.startswith('--no-'))
-
-
-class SmartHelpFmt(argparse.RawDescriptionHelpFormatter):
-
-    def _format_action(self, action):
-        if type(action) == ToggleAction:
-            opts = action.option_strings
-            action.option_strings = ['--[no-]' + action.dest]
-            parts = super(SmartHelpFmt, self)._format_action(action)
-            action.option_strings = opts
-        else:
-            parts = super(SmartHelpFmt, self)._format_action(action)
-        return parts
-
-    def _format_usage(self, usage, actions, groups, prefix):
-        for g in groups:
-            print(g)
-        text = super(SmartHelpFmt, self)._format_usage(usage,
-                                                       actions, groups, prefix)
-        # print "Usage", text
-        return text
-
-    def format_help(self):
-        text = super(SmartHelpFmt, self).format_help()
-        return text
-
-
-epilog = '''
-Example:
-   %(prog)s --rare
-   %(prog)s --trends
-'''
-
 
 p = argparse.ArgumentParser(
-    prog='tv_shows',
-    formatter_class=SmartHelpFmt,
+    prog=prog_name,
+    formatter_class=argparse.RawDescriptionHelpFormatter,
     description=__doc__,
-    epilog=epilog)
+    epilog=prog_epilog)
 p.add_argument("--debug", help="debug mode",
                dest='debug', action="store_true")
-p.add_argument("--version", help="print version and exit",
-               action="store_true")
+p.add_argument("--version", action='version',
+               version='%(prog)s ' + prog_version)
 p.add_argument("-v", help="verbose mode",
                dest='verbose', action="store_true")
 p.add_argument("-n", help="Search first N shows only",
@@ -156,18 +112,14 @@ if args.verbose:
 if args.debug:
     log.setLevel(logging.DEBUG)
 
-log.debug("Args: %s", args)
-log.debug("Args: %s", dir(args))
+log.debug("Args: %s", json.dumps(vars(args), indent=4, sort_keys=True))
 
-if args.version:
-    print "Version", version
-    exit(0)
-    
+
 if args.rare:
     args.scan_rare = "yes"
     args.scan_watchlist = "no"
     args.scan_local = "no"
-    args.search_kat = "kat"
+    args.search_kat = "yes"
     args.search_air_dates = "yes"
     args.search_status = "yes"
     args.search_trends = "no"
@@ -325,15 +277,16 @@ def simplify_tv_show_name(pname):
     return unicode(pname)
 
 
-def tvs_from_name(name):
-    name = simplify_tv_show_name(name)
-    tv = {
-        'simple_name': name,
-    }
-    tvs = {
-        name: tv
-    }
-    return tvs
+def tvs_from_name(tvs):
+    name = simplify_tv_show_name(args.name)
+    if name in tvs:
+        tv = tvs[name]
+    else:
+        tv = {
+            'simple_name': name,
+        }
+    log.debug("Keep '%s', drop the rest", name)
+    return {name: tv}
 
 
 def signal_handler(signal, frame):
@@ -346,6 +299,10 @@ def signal_handler(signal, frame):
 ############################################
 class TvDB(object):
 
+    orig_names = {
+        'da vincis demons': "da vinci's demons",
+    }
+
     def __init__(self, name, url):
         self.name = name
         self.url = url
@@ -355,15 +312,31 @@ class TvDB(object):
     def __str__(self):
         return "<TvDB %s>" % self.name
 
+    def get_one_real(self, tv_name):
+        return ''
+
+    def get_one(self, tv_name):
+        html = self.get_one_real(tv_name)
+        if tv_name in self.orig_names:
+            html += self.get_one_real(self.orig_names[tv_name])
+        return html
+
     def get(self, tvs):
-        pass
+        html = ''
+        for tv_name in sorted(tvs.keys()):
+            html += self.get_one(tv_name)
+        return html
 
     def parse(self, tvs, text):
         pass
 
     def search(self, tvs):
+        log.debug("Connect to '%s'", self.name)
         text = self.get(tvs)
+        l1 = len(tvs)
         self.parse(tvs, text)
+        l2 = len(tvs)
+        log.debug("Loaded %d items from '%s'", l2 - l1, self.name)
 
 
 class Local_TvDB(TvDB):
@@ -375,7 +348,7 @@ class Local_TvDB(TvDB):
         # mkdir_p(dir_)
 
     def get(self, tvs):
-        log.debug("Search local dir %s", self.url)
+        log.info("Scan dir '%s'", os.path.realpath(self.url))
         files = []
         for (dirpath, dirnames, filenames) in os.walk(self.url):
             files.extend(filenames)
@@ -408,19 +381,54 @@ class Local_TvDB(TvDB):
             # log.debug("%s\n", act)
 
 
+class Air_Dates_TvDB(TvDB):
+
+    def __init__(self):
+        super(Air_Dates_TvDB, self).__init__("Air Dates",
+                                             'http://www.airdates.tv/')
+        self.is_fast = True
+
+    def get(self, tvs):
+        url = 'http://www.airdates.tv/'
+        html = wget(url)
+        return html
+
+    def parse(self, tvs, html):
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('div', class_='day'):
+            date = d['data-date']
+            # log.debug("day %s, %s", date, d['class'])
+            for e in d.find_all('div', class_='title'):
+                text = e.text.split()
+                tv_name = ' '.join(text[:-1])
+                stv_name = simplify_tv_show_name(tv_name)
+                ep_no = text[-1]
+                # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
+                if not stv_name in tvs:
+                    continue
+                tv = tvs[stv_name]
+                if not 'eps' in tv:
+                    tv['eps'] = {}
+                eps = tv['eps']
+                if not ep_no in eps:
+                    ep = {
+                        'no': ep_no,
+                        'date': date
+                    }
+                    eps[ep_no] = ep
+
+
 class KAT_TvDB(TvDB):
 
     def __init__(self):
         super(KAT_TvDB, self).__init__("KAT", 'http://kickass.to')
         self.is_fast = True
 
-    def get(self, tvs):
-        html = ''
-        for tv_name in sorted(tvs.keys()):
-            log.info("Search KAT for '%s'", tv_name)
-            url = self.url + '/usearch/' + tv_name + 'category:tv/'
-            opts = '?field=time_add&sorder=desc'
-            html += wget(url, self.url) + wget(url + opts, self.url)
+    def get_one_real(self, tv_name):
+        log.info("Search 'KAT' for '%s'", tv_name)
+        url = self.url + '/usearch/' + tv_name + ' category:tv/'
+        opts = '?field=time_add&sorder=desc'
+        html = wget(url, self.url) + wget(url + opts, self.url)
         return html
 
     def parse(self, tvs, html):
@@ -469,46 +477,6 @@ class KAT_TvDB(TvDB):
                 # log.debug("KAT: new ep")
 
 
-class Air_Dates_TvDB(TvDB):
-
-    def __init__(self):
-        super(Air_Dates_TvDB, self).__init__("Air Dates",
-                                             'http://www.airdates.tv/')
-        self.is_fast = True
-
-    def get(self, tvs):
-        log.info("Get air dates from http://www.airdates.tv/")
-        url = 'http://www.airdates.tv/'
-        html = wget(url)
-        return html
-
-    def parse(self, tvs, html):
-        soup = bs4.BeautifulSoup(html)
-        for d in soup.find_all('div', class_='day'):
-            date = d['data-date']
-            # log.debug("day %s, %s", date, d['class'])
-            for e in d.find_all('div', class_='title'):
-                text = e.text.split()
-                tv_name = ' '.join(text[:-1])
-                stv_name = simplify_tv_show_name(tv_name)
-                ep_no = text[-1]
-                # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
-                if not stv_name in tvs:
-                    continue
-                tv = tvs[stv_name]
-                if not 'eps' in tv:
-                    tv['eps'] = {}
-                eps = tv['eps']
-                if not ep_no in eps:
-                    ep = {
-                        'no': ep_no,
-                        'date': date
-                    }
-                    eps[ep_no] = ep
-
-        log.debug("air dates: %s shows", len(tvs))
-
-
 class Status_TvDB(TvDB):
 
     def __init__(self):
@@ -516,13 +484,11 @@ class Status_TvDB(TvDB):
                                           'http://www.ismyshowcancelled.com/')
         self.is_fast = True
 
-    def get(self, tvs):
-        html = ''
-        for tv_name in sorted(tvs.keys()):
-            log.info("Search IsMyShowCancelled for '%s'", tv_name)
-            url = self.url + 'shows/search/page/1/'
-            vals = {'Search': tv_name}
-            html += wpost(url, vals)
+    def get_one_real(self, tv_name):
+        log.info("Search 'IsMyShowCancelled' for '%s'", tv_name)
+        url = self.url + 'shows/search/page/1/'
+        vals = {'Search': tv_name}
+        html = wpost(url, vals)
         return html
 
     def parse(self, tvs, html):
@@ -867,17 +833,14 @@ def scan(args):
 
     # scan watchlist
     if args.scan_rare == 'yes':
-        log.info("Scan rare at %s", rdir)
-        Local_TvDB("watchlist", rdir).search(tvs)
+        Local_TvDB("rare", rdir).search(tvs)
 
     # scan watchlist
     if args.scan_watchlist == 'yes':
-        log.info("Scan watchlist at %s", wdir)
         Local_TvDB("watchlist", wdir).search(tvs)
 
     # scan local files
     if args.scan_local == 'yes':
-        log.info("Scan local shows at %s", ldir)
         Local_TvDB("local shows", ldir).search(tvs)
 
     if args.scan_rare == 'yes' or args.scan_local == 'no':
@@ -901,10 +864,23 @@ def scan(args):
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
     if args.name:
-        tvs = tvs_from_name(args.name)
-    else:
-        tvs = scan(args)
-    log.debug("scan tvs: %d shows", len(tvs))
+        args.scan_rare = "yes"
+        args.search_status = "yes"
+
+    flags = sorted([k for k in vars(args).keys()])
+    log.info("Scan flags:")
+    for f in [k for k in flags if k.startswith('scan_')]:
+        ff = f[len('scan_'):]
+        log.info("  %-10s %s", ff, getattr(args, f))
+    log.info("Search flags:")
+    for f in [k for k in flags if k.startswith('search_')]:
+        ff = f[len('search_'):]
+        log.info("  %-10s %s", ff, getattr(args, f))
+
+    tvs = scan(args)
+    if args.name:
+        tvs = tvs_from_name(tvs)
+    log.debug("Loaded %s shows", len(tvs))
 
     # apply torrent number limit
     keys = sorted(tvs.keys())
