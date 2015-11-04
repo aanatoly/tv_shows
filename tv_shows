@@ -428,7 +428,9 @@ class KAT_TvDB(TvDB):
         log.info("Search 'KAT' for '%s'", tv_name)
         url = self.url + '/usearch/' + tv_name + ' category:tv/'
         opts = '?field=time_add&sorder=desc'
-        html = wget(url, self.url) + wget(url + opts, self.url)
+        html = ''
+        # html += wget(url, self.url)
+        html += wget(url + opts, self.url)
         return html
 
     def parse(self, tvs, html):
