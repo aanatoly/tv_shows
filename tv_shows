@@ -12,7 +12,13 @@ List's dir keeps files of the form "name sXXeXX" and zero length.
 Its' ok to add / remove them manually.
 '''
 
-version = "1.4"
+prog_name = "tv_shows"
+prog_version = "1.4"
+prog_epilog = '''
+Example:
+   %(prog)s --rare
+   %(prog)s --trends
+'''
 
 ############################################
 # Imports
@@ -21,6 +27,7 @@ import logging
 import argparse
 import os
 import sys
+import json
 import subprocess as sp
 import bs4
 import re
@@ -29,7 +36,6 @@ import urllib2
 import urllib
 import pprint
 import time
-import json
 import tempfile
 import textwrap
 import datetime
@@ -57,66 +63,16 @@ except:
 ############################################
 # Argument parsing
 ############################################
-class ToggleAction(argparse.Action):
-
-    def __init__(self, **kw):
-        name = kw['option_strings'][0][2:]
-        if name.startswith('no-'):
-            name = name[3:]
-        kw['dest'] = name
-        kw['option_strings'] = ['--' + name, '--no-' + name]
-        kw['nargs'] = 0
-        kw['metavar'] = None
-        if 'default' not in kw:
-            kw['default'] = False
-        super(ToggleAction, self).__init__(**kw)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest,
-                not option_string.startswith('--no-'))
-
-
-class SmartHelpFmt(argparse.RawDescriptionHelpFormatter):
-
-    def _format_action(self, action):
-        if type(action) == ToggleAction:
-            opts = action.option_strings
-            action.option_strings = ['--[no-]' + action.dest]
-            parts = super(SmartHelpFmt, self)._format_action(action)
-            action.option_strings = opts
-        else:
-            parts = super(SmartHelpFmt, self)._format_action(action)
-        return parts
-
-    def _format_usage(self, usage, actions, groups, prefix):
-        for g in groups:
-            print(g)
-        text = super(SmartHelpFmt, self)._format_usage(usage,
-                                                       actions, groups, prefix)
-        # print "Usage", text
-        return text
-
-    def format_help(self):
-        text = super(SmartHelpFmt, self).format_help()
-        return text
-
-
-epilog = '''
-Example:
-   %(prog)s --rare
-   %(prog)s --trends
-'''
-
 
 p = argparse.ArgumentParser(
-    prog='tv_shows',
-    formatter_class=SmartHelpFmt,
+    prog=prog_name,
+    formatter_class=argparse.RawDescriptionHelpFormatter,
     description=__doc__,
-    epilog=epilog)
+    epilog=prog_epilog)
 p.add_argument("--debug", help="debug mode",
                dest='debug', action="store_true")
-p.add_argument("--version", help="print version and exit",
-               action="store_true")
+p.add_argument("--version", action='version',
+               version='%(prog)s ' + prog_version)
 p.add_argument("-v", help="verbose mode",
                dest='verbose', action="store_true")
 p.add_argument("-n", help="Search first N shows only",
@@ -156,13 +112,9 @@ if args.verbose:
 if args.debug:
     log.setLevel(logging.DEBUG)
 
-log.debug("Args: %s", args)
-log.debug("Args: %s", dir(args))
+log.debug("Args: %s", json.dumps(vars(args), indent=4, sort_keys=True))
 
-if args.version:
-    print "Version", version
-    exit(0)
-    
+
 if args.rare:
     args.scan_rare = "yes"
     args.scan_watchlist = "no"
@@ -362,8 +314,12 @@ class TvDB(object):
         pass
 
     def search(self, tvs):
+        log.debug("Connect to '%s'", self.name)
         text = self.get(tvs)
+        l1 = len(tvs)
         self.parse(tvs, text)
+        l2 = len(tvs)
+        log.debug("Loaded %d items from '%s'", l2 - l1, self.name)
 
 
 class Local_TvDB(TvDB):
@@ -375,7 +331,7 @@ class Local_TvDB(TvDB):
         # mkdir_p(dir_)
 
     def get(self, tvs):
-        log.debug("Search local dir %s", self.url)
+        log.debug("Search dir '%s'", os.path.realpath(self.url))
         files = []
         for (dirpath, dirnames, filenames) in os.walk(self.url):
             files.extend(filenames)
@@ -477,7 +433,6 @@ class Air_Dates_TvDB(TvDB):
         self.is_fast = True
 
     def get(self, tvs):
-        log.info("Search 'Air Dates'")
         url = 'http://www.airdates.tv/'
         html = wget(url)
         return html
@@ -506,7 +461,6 @@ class Air_Dates_TvDB(TvDB):
                     }
                     eps[ep_no] = ep
 
-        log.debug("air dates: %s shows", len(tvs))
 
 
 class Status_TvDB(TvDB):
@@ -867,17 +821,14 @@ def scan(args):
 
     # scan watchlist
     if args.scan_rare == 'yes':
-        log.info("Scan rare at %s", rdir)
-        Local_TvDB("watchlist", rdir).search(tvs)
+        Local_TvDB("rare", rdir).search(tvs)
 
     # scan watchlist
     if args.scan_watchlist == 'yes':
-        log.info("Scan watchlist at %s", wdir)
         Local_TvDB("watchlist", wdir).search(tvs)
 
     # scan local files
     if args.scan_local == 'yes':
-        log.info("Scan local shows at %s", ldir)
         Local_TvDB("local shows", ldir).search(tvs)
 
     if args.scan_rare == 'yes' or args.scan_local == 'no':
