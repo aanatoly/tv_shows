@@ -390,6 +390,7 @@ class Air_Dates_TvDB(TvDB):
 
     def get(self, tvs):
         url = 'http://www.airdates.tv/'
+        log.info("Search '%s'", self.name)
         html = wget(url)
         return html
 
