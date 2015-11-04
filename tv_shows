@@ -13,7 +13,7 @@ Its' ok to add / remove them manually.
 '''
 
 prog_name = "tv_shows"
-prog_version = "1.4"
+prog_version = "1.5"
 prog_epilog = '''
 Example:
    %(prog)s --rare
