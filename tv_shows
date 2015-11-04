@@ -277,15 +277,16 @@ def simplify_tv_show_name(pname):
     return unicode(pname)
 
 
-def tvs_from_name(name):
-    name = simplify_tv_show_name(name)
-    tv = {
-        'simple_name': name,
-    }
-    tvs = {
-        name: tv
-    }
-    return tvs
+def tvs_from_name(tvs):
+    name = simplify_tv_show_name(args.name)
+    if name in tvs:
+        tv = tvs[name]
+    else:
+        tv = {
+            'simple_name': name,
+        }
+    log.debug("Keep '%s', drop the rest", name)
+    return { name : tv }
 
 
 def signal_handler(signal, frame):
@@ -331,7 +332,7 @@ class Local_TvDB(TvDB):
         # mkdir_p(dir_)
 
     def get(self, tvs):
-        log.debug("Search dir '%s'", os.path.realpath(self.url))
+        log.info("Scan dir '%s'", os.path.realpath(self.url))
         files = []
         for (dirpath, dirnames, filenames) in os.walk(self.url):
             files.extend(filenames)
@@ -460,7 +461,6 @@ class Air_Dates_TvDB(TvDB):
                         'date': date
                     }
                     eps[ep_no] = ep
-
 
 
 class Status_TvDB(TvDB):
@@ -852,11 +852,25 @@ def scan(args):
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
     if args.name:
-        tvs = tvs_from_name(args.name)
-    else:
-        tvs = scan(args)
-    log.debug("scan tvs: %d shows", len(tvs))
+        args.scan_rare = "yes"
+        args.search_status = "yes"
+        
+    flags = sorted([k for k in vars(args).keys()])
+    log.info("Scan flags:")
+    for f in [k for k in flags if k.startswith('scan_')]:
+        ff = f[len('scan_'):]
+        log.info("  %-10s %s", ff, getattr(args, f))
+    log.info("Search flags:")
+    for f in [k for k in flags if k.startswith('search_')]:
+        ff = f[len('search_'):]
+        log.info("  %-10s %s", ff, getattr(args, f))     
 
+  
+    tvs = scan(args)
+    if args.name:
+        tvs = tvs_from_name(tvs)
+    log.debug("Loaded %s shows", len(tvs))
+    
     # apply torrent number limit
     keys = sorted(tvs.keys())
     del keys[0:args.limit]
