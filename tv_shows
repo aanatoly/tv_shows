@@ -286,7 +286,7 @@ def tvs_from_name(tvs):
             'simple_name': name,
         }
     log.debug("Keep '%s', drop the rest", name)
-    return { name : tv }
+    return {name: tv}
 
 
 def signal_handler(signal, frame):
@@ -299,6 +299,10 @@ def signal_handler(signal, frame):
 ############################################
 class TvDB(object):
 
+    orig_names = {
+        'da vincis demons': "da vinci's demons",
+    }
+
     def __init__(self, name, url):
         self.name = name
         self.url = url
@@ -308,8 +312,20 @@ class TvDB(object):
     def __str__(self):
         return "<TvDB %s>" % self.name
 
+    def get_one_real(self, tv_name):
+        return ''
+
+    def get_one(self, tv_name):
+        html = self.get_one_real(tv_name)
+        if tv_name in self.orig_names:
+            html += self.get_one_real(self.orig_names[tv_name])
+        return html
+
     def get(self, tvs):
-        pass
+        html = ''
+        for tv_name in sorted(tvs.keys()):
+            html += self.get_one(tv_name)
+        return html
 
     def parse(self, tvs, text):
         pass
@@ -365,19 +381,54 @@ class Local_TvDB(TvDB):
             # log.debug("%s\n", act)
 
 
+class Air_Dates_TvDB(TvDB):
+
+    def __init__(self):
+        super(Air_Dates_TvDB, self).__init__("Air Dates",
+                                             'http://www.airdates.tv/')
+        self.is_fast = True
+
+    def get(self, tvs):
+        url = 'http://www.airdates.tv/'
+        html = wget(url)
+        return html
+
+    def parse(self, tvs, html):
+        soup = bs4.BeautifulSoup(html)
+        for d in soup.find_all('div', class_='day'):
+            date = d['data-date']
+            # log.debug("day %s, %s", date, d['class'])
+            for e in d.find_all('div', class_='title'):
+                text = e.text.split()
+                tv_name = ' '.join(text[:-1])
+                stv_name = simplify_tv_show_name(tv_name)
+                ep_no = text[-1]
+                # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
+                if not stv_name in tvs:
+                    continue
+                tv = tvs[stv_name]
+                if not 'eps' in tv:
+                    tv['eps'] = {}
+                eps = tv['eps']
+                if not ep_no in eps:
+                    ep = {
+                        'no': ep_no,
+                        'date': date
+                    }
+                    eps[ep_no] = ep
+
+
 class KAT_TvDB(TvDB):
 
     def __init__(self):
         super(KAT_TvDB, self).__init__("KAT", 'http://kickass.to')
         self.is_fast = True
 
-    def get(self, tvs):
-        html = ''
-        for tv_name in sorted(tvs.keys()):
-            log.info("Search 'KAT' for '%s'", tv_name)
-            url = self.url + '/usearch/' + tv_name + 'category:tv/'
-            opts = '?field=time_add&sorder=desc'
-            html += wget(url, self.url) + wget(url + opts, self.url)
+    def get_one_real(self, tv_name):
+        log.info("Search 'KAT' for '%s'", tv_name)
+        url = self.url + '/usearch/' + tv_name + ' category:tv/'
+        opts = '?field=time_add&sorder=desc'
+        html = wget(url, self.url) + wget(url + opts, self.url)
         return html
 
     def parse(self, tvs, html):
@@ -426,43 +477,6 @@ class KAT_TvDB(TvDB):
                 # log.debug("KAT: new ep")
 
 
-class Air_Dates_TvDB(TvDB):
-
-    def __init__(self):
-        super(Air_Dates_TvDB, self).__init__("Air Dates",
-                                             'http://www.airdates.tv/')
-        self.is_fast = True
-
-    def get(self, tvs):
-        url = 'http://www.airdates.tv/'
-        html = wget(url)
-        return html
-
-    def parse(self, tvs, html):
-        soup = bs4.BeautifulSoup(html)
-        for d in soup.find_all('div', class_='day'):
-            date = d['data-date']
-            # log.debug("day %s, %s", date, d['class'])
-            for e in d.find_all('div', class_='title'):
-                text = e.text.split()
-                tv_name = ' '.join(text[:-1])
-                stv_name = simplify_tv_show_name(tv_name)
-                ep_no = text[-1]
-                # log.debug("entry '%s', ep '%s'", tv_name, ep_no)
-                if not stv_name in tvs:
-                    continue
-                tv = tvs[stv_name]
-                if not 'eps' in tv:
-                    tv['eps'] = {}
-                eps = tv['eps']
-                if not ep_no in eps:
-                    ep = {
-                        'no': ep_no,
-                        'date': date
-                    }
-                    eps[ep_no] = ep
-
-
 class Status_TvDB(TvDB):
 
     def __init__(self):
@@ -470,13 +484,11 @@ class Status_TvDB(TvDB):
                                           'http://www.ismyshowcancelled.com/')
         self.is_fast = True
 
-    def get(self, tvs):
-        html = ''
-        for tv_name in sorted(tvs.keys()):
-            log.info("Search 'IsMyShowCancelled' for '%s'", tv_name)
-            url = self.url + 'shows/search/page/1/'
-            vals = {'Search': tv_name}
-            html += wpost(url, vals)
+    def get_one_real(self, tv_name):
+        log.info("Search 'IsMyShowCancelled' for '%s'", tv_name)
+        url = self.url + 'shows/search/page/1/'
+        vals = {'Search': tv_name}
+        html = wpost(url, vals)
         return html
 
     def parse(self, tvs, html):
@@ -854,7 +866,7 @@ if __name__ == '__main__':
     if args.name:
         args.scan_rare = "yes"
         args.search_status = "yes"
-        
+
     flags = sorted([k for k in vars(args).keys()])
     log.info("Scan flags:")
     for f in [k for k in flags if k.startswith('scan_')]:
@@ -863,14 +875,13 @@ if __name__ == '__main__':
     log.info("Search flags:")
     for f in [k for k in flags if k.startswith('search_')]:
         ff = f[len('search_'):]
-        log.info("  %-10s %s", ff, getattr(args, f))     
+        log.info("  %-10s %s", ff, getattr(args, f))
 
-  
     tvs = scan(args)
     if args.name:
         tvs = tvs_from_name(tvs)
     log.debug("Loaded %s shows", len(tvs))
-    
+
     # apply torrent number limit
     keys = sorted(tvs.keys())
     del keys[0:args.limit]
