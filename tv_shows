@@ -684,24 +684,33 @@ class PrintTVs(object):
         except:
             return ''
 
+        if 'last_seen_ep' in tv:
+            lep = tv['last_seen_ep'].lower()
+        else:
+            lep = 's99e99'
+            
         neps = [d[k] for k in sorted(d.keys())]
         # log.debug("sorted eps \n%s", json.dumps(neps, indent=4))
         for ep in neps:
+            nep = ep['no'].lower()
+            if lep >= nep:
+                continue
             tv_time = datetime.datetime.strptime(ep['date'], '%Y%m%d')
             dh = 20 + 7
             dt = datetime.timedelta(hours=dh)
             tv_time += dt
             now = datetime.datetime.now()
-            if tv_time > now:
-                pnext = ep['no'].lower()
-                dt = tv_time - now
-                if dt.total_seconds() < 0:
-                    pnext += " soon"
-                elif dt.days:
-                    pnext += " in %dd" % dt.days
-                else:
-                    pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
-                return pnext
+            if tv_time <= now:
+                continue
+            pnext = nep
+            dt = tv_time - now
+            if dt.total_seconds() < 0:
+                pnext += " soon"
+            elif dt.days:
+                pnext += " in %dd" % dt.days
+            else:
+                pnext += " in %dh" % (dt.total_seconds() / (60 * 60))
+            return pnext
 
     def avail_eps_convert(self, tv):
         try:
