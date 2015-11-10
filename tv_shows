@@ -826,9 +826,8 @@ class PrintTVs(object):
                     value = ' '
                 srow += fmt % value + '  '
             if args.search_trends == 'yes' and 'last_seen_ep' in tv:
-                print "\033[1m" + srow + "\033[0m"
-            else:
-                print srow
+                srow =  "\033[1m" + srow + "\033[0m"
+            print srow.rstrip()
 
 
 ############################################
