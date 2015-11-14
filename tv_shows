@@ -269,7 +269,14 @@ def simplify_tv_show_name(pname):
     pname = pname.replace("'", "")
     pname = pname.replace(".", " ")
     pname = pname.replace("&", " and ")
-    pname = ''.join([e for e in pname if e.isalnum() or e.isspace()])
+    pname2 = ''
+    for ch in pname:
+        if ch.isalnum():
+            pname2 += ch
+        else:
+            pname2 += ' '
+    pname = pname2
+    # pname = ''.join([e for e in pname if e.isalnum() or e.isspace()])
     pname = pname.lower()
     pname = re.sub('\(\d\d\d\d\)', '', pname)
     pname = ' '.join(pname.strip().split())
@@ -364,6 +371,8 @@ class Local_TvDB(TvDB):
             log.debug("file '%s'", f)
             pname = m.group(1)
             pname = simplify_tv_show_name(pname)
+            if pname.startswith('sample'):
+                continue
             pep = m.group(2).upper()
             # log.debug("name '%s' ep %s", pname, pep)
             act = 'ign'
